@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
@@ -36,6 +36,12 @@ class QueryReq(BaseModel):
 SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL_IPV4")
 DEVICE_ID = os.getenv("DEVICE_ID")
 
+# this one is for browser use with a query param
+@router.get("/query")
+def rag_query_get(question: str = Query(...)):
+    return answer_question(question)
+
+# proper post request with a header
 @router.post("/query")
 def rag_query(request: QueryReq):
     return answer_question(request.question)

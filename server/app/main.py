@@ -1,6 +1,6 @@
 # app.py
 import os, sqlite3, time
-from fastapi import FastAPI, Request, Header
+from fastapi import Depends, FastAPI, Query, Request, Header, HTTPException
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from datetime import datetime, timezone
@@ -22,7 +22,9 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 # Accept either service role or anon; prefer service role on the server.
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_TABLE = os.getenv("SUPABASE_TABLE", "readings")
-SHARED_TOKEN = os.getenv("INGEST_TOKEN", "change-me")
+INGEST_TOKEN = os.getenv("INGEST_TOKEN", "change-me")
+
+STATUS_TOKEN = os.getenv("STATUS_TOKEN", "a-long-secret-key")
 
 supabase = None
 
@@ -68,13 +70,15 @@ def ping():
     return {"pong": True, "sqlite": True, "supabase": bool(supabase)}
 
 @app.get("/latest")
-def get_latest():
+def get_latest(token: str = Query(default="")):
+    if token != STATUS_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
     return latest_reading or {}
 
 @app.post("/ingest")
 async def ingest(request: Request, x_token: str = Header(None)):
     global latest_reading
-    if x_token != SHARED_TOKEN:
+    if x_token != INGEST_TOKEN:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
 
     data = await request.json()

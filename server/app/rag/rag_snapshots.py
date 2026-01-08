@@ -61,7 +61,7 @@ def _get_earliest_timestamp(
         sql = f"""
             select min({timestamp_column_name})
             from {table_name}
-            where device_id = %(device_ide)s;
+            where device_id = %(device_id)s;
         """
         params = {"device_id": device_id}
 
@@ -98,6 +98,7 @@ def _define_hour_windows_from_start(
             timestamp_column_name="created_at"
         )
         window_start = _floor_to_hour(earliest)
+        connection.close()
 
     window_end = _floor_to_hour(end_time or _utc_now())
 
@@ -220,7 +221,7 @@ def _format_snapshot_text(
         f"Hourly snapshot for device '{window.device_id}'\n"
         f"Window (UTC): {window.window_start.isoformat()} → {window.window_end.isoformat()}\n"
         f"Samples: {stats.n}\n"
-        f"Data coverage: {((stats.n * 100) / 1800):.2f }%\n"
+        f"Data coverage: {((stats.n * 100) / 1800):.2f}%\n"
         f"Temperature °C: avg={stats.t_avg_c:.2f}, "
         f"min={stats.t_min_c:.2f}, max={stats.t_max_c:.2f}\n"
         f"Humidity %RH: avg={stats.h_avg:.2f}, "

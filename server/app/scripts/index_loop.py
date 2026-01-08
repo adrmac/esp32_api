@@ -3,7 +3,7 @@ import requests
 
 from app.api.rag_router import rag_index
 
-TOKEN = "a-long-secret-key"
+# TOKEN = "a-long-secret-key"
 
 # index every hour while app is running
 # index endpoint flattens to the top of the current hour and takes the last hour

@@ -36,8 +36,8 @@ PGVECTOR_COLLECTION = os.getenv("PGVECTOR_COLLECTION", "esp32_rag")
 OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "gemma2:latest")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
-# Retrieval defaults
-RAG_K = int(os.getenv("RAG_K", "3"))
+# Number of documents to retrieve
+RAG_K = int(os.getenv("RAG_K", "25"))
 
 # error handling for missing cnnection string
 def _require_env(name: str, value: Optional[str]) -> str:
@@ -94,3 +94,9 @@ def get_retriever() -> VectorStoreRetriever:
         )
 
 # By having the vectorstore create the retriever, LangChain can translate the different query API, metadata handling, etc. of different vectorstore providers (e.g., PGVector, Chroma, FAISS, Pinecone) to a consistent interface.
+
+# The LangChain VectorStoreRetriever is called like this:
+# retriever = get_retriever()
+# documents = retriever.invoke("prompt")
+
+# This returns K top similarity search results to the prompt
