@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
-from app.rag.rag_query import answer_question
+from app.rag.rag_query import llamaindex_answer_question
 from app.rag.rag_snapshots import build_langchain_documents
 from app.rag.rag_index import archive_documents_in_database, index_documents_in_vectorstore
 
@@ -39,12 +39,12 @@ DEVICE_ID = os.getenv("DEVICE_ID")
 # this one is for browser use with a query param
 @router.get("/query")
 def rag_query_get(question: str = Query(...)):
-    return answer_question(question)
+    return llamaindex_answer_question(question)
 
 # proper post request with a header
 @router.post("/query")
 def rag_query(request: QueryReq):
-    return answer_question(request.question)
+    return llamaindex_answer_question(request.question)
 
 @router.post("/rebuild", dependencies=[Depends(require_cron_token)])
 def rag_rebuild():

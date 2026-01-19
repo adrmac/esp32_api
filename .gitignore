@@ -18,5 +18,6 @@ __pycache__/
 .ruff_cache/
 
 # Scratch folders
-scratch
-supabase
+scratch/
+supabase/
+archive/

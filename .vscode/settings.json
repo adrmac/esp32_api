@@ -1,0 +1,7 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/server/.venv/bin/python",
+  "python.terminal.activateEnvironment": true,
+  "cSpell.words": [
+    "vectorstore"
+  ]
+}
