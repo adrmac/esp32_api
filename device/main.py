@@ -6,7 +6,7 @@ from LCD import show_reading
 
 WIFI_SSID = "Knight-MacDonald"
 WIFI_PASS = "409Jasper!"
-SERVER    = "http://192.168.0.3:8000/ingest"  # your laptop IP
+SERVER    = "http://192.168.0.34:8000/ingest"  # your laptop IP
 TOKEN     = "change-me"
 DEVICE_ID = "esp32-s3-devkit-001"
 
