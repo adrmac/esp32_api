@@ -17,7 +17,7 @@ from fastapi import Header, HTTPException
 # e.g. X-RAG-Token: a-long-secret-key
 # 4. if it doesn't match, return 401 Unauthorized
 
-RAG_CRON_TOKEN = os.getenv("RAG_CRON_TOKEN", "a-long-secret-key")
+RAG_CRON_TOKEN = os.getenv("RAG_CRON_TOKEN")
 
 # FastAPI will look for X-RAG-Token based on 'x_rag_token' parameter
 def require_cron_token(x_rag_token: str = Header(default="")):

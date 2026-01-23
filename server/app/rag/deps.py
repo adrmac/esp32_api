@@ -507,6 +507,7 @@ def get_llamaindex_query_engine():
         bundle = QueryBundle(query_str=query)
         retrieved = vector_auto_retriever.retrieve(bundle)
 
+        print(f"\n=== DEBUG AUTO RETRIEVER FOR QUERY: {query!r} ===")
         print(f"\n=== AUTO RETRIEVER RETRIEVED {len(retrieved)} NODES (query={query!r}) ===")
         for i, nws in enumerate(retrieved[:limit], start=1):
             node = nws.node
