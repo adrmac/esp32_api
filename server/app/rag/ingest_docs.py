@@ -6,6 +6,11 @@ from llama_index.core import Document
 
 from pathlib import Path
 
+#Pre-defined web documents URLs
+from app.rag.docs.urls import urls
+
+
+# Pre-defined PDFs directory
 BASE_DIR = Path(__file__).resolve().parent
 PDF_DIR = BASE_DIR / "docs" / "pdfs"
 
@@ -21,10 +26,6 @@ pdf_docs = SimpleDirectoryReader(
 # .metadata["file_name"]
 # .metadata["file_path"]
 
-urls = [
-    "https://en.wikipedia.org/wiki/ASHRAE_55",
-    "https://www.mdpi.com/2075-5309/11/8/336",
-]
 
 web_docs = SimpleWebPageReader().load_data(urls)
 

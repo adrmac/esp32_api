@@ -64,3 +64,8 @@ def rag_index():
     archive_documents_in_database(SUPABASE_DB_URL, documents)
     return {"ok": True, "snapshots_indexed": len(documents)}
 
+@router.post("/ingest_docs", dependencies=[Depends(require_cron_token)])
+def rag_ingest_docs():
+    from app.rag.ingest_docs import ingest
+    ingest()
+    return {"ok": True, "message": "Ingestion complete."}
