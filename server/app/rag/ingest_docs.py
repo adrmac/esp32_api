@@ -87,8 +87,15 @@ PGVECTOR_CONNECTION_STRING = os.getenv("PGVECTOR_CONNECTION_STRING")
 # name the table here and it automatically appears in Supabase
 LLAMAINDEX_PGVECTOR_COLLECTION = os.getenv("LLAMAINDEX_PGVECTOR_COLLECTION", "rag_literature_chunks")
 
-SUPABASE_DB_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD", "")
-OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+DATABASE = os.getenv("SUPABASE_DB", "postgres")
+DATABASE_HOST = os.getenv("SUPABASE_IPV4_HOST", "aws-1-us-east-1.pooler.supabase.com")
+DATABASE_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD", "")
+DATABASE_PORT = os.getenv("SUPABASE_DB_PORT", "5432")
+DATABASE_USER = os.getenv("SUPABASE_USER_NAME", "")
+RAG_LITERATURE_TABLE = os.getenv("RAG_LITERATURE_TABLE", "")
+
+
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL")
 EMBED_DIM = os.getenv("EMBED_DIM", 768)
 
 from llama_index.core.schema import TextNode
@@ -113,12 +120,12 @@ def ingest():
 
     # connect vector store
     pgvs = PGVectorStore.from_params(
-        database="postgres",
-        host="aws-1-us-east-1.pooler.supabase.com",
-        password=SUPABASE_DB_PASSWORD,
-        port=5432,
-        user="postgres.yabbcqlzwirhqfwnwbij",
-        table_name=LLAMAINDEX_PGVECTOR_COLLECTION,
+        database=DATABASE,
+        host=DATABASE_HOST,
+        password=DATABASE_PASSWORD,
+        port=DATABASE_PORT,
+        user=DATABASE_USER,
+        table_name=RAG_LITERATURE_TABLE,
         embed_dim=EMBED_DIM, # nomic-embed-text is 768? depends on model; must match Settings.embed_model dim
         # optionally schema_name="public"
     )

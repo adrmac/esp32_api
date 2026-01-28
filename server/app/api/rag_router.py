@@ -17,11 +17,12 @@ from fastapi import Header, HTTPException
 # e.g. X-RAG-Token: a-long-secret-key
 # 4. if it doesn't match, return 401 Unauthorized
 
-RAG_CRON_TOKEN = os.getenv("RAG_CRON_TOKEN")
+RAG_TOKEN = os.getenv("RAG_TOKEN")
+SNAPSHOT_DATA_TABLE = os.getenv("SNAPSHOT_DATA_TABLE")
 
 # FastAPI will look for X-RAG-Token based on 'x_rag_token' parameter
-def require_cron_token(x_rag_token: str = Header(default="")):
-    if not RAG_CRON_TOKEN or x_rag_token != RAG_CRON_TOKEN:
+def require_rag_token(x_rag_token: str = Header(default="")):
+    if not RAG_TOKEN or x_rag_token != RAG_TOKEN:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 ### To call these endpoints from terminal, use:
@@ -33,7 +34,7 @@ router = APIRouter()
 class QueryReq(BaseModel):
     question: str
 
-SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL_IPV4")
+DATABASE_URL = os.getenv("SUPABASE_DB_URL_IPV4")
 DEVICE_ID = os.getenv("DEVICE_ID")
 
 # this one is for browser use with a query param
@@ -46,25 +47,25 @@ def rag_query_get(question: str = Query(...)):
 def rag_query(request: QueryReq):
     return llamaindex_answer_question(request.question)
 
-@router.post("/rebuild", dependencies=[Depends(require_cron_token)])
+@router.post("/rebuild", dependencies=[Depends(require_rag_token)])
 def rag_rebuild():
     documents = build_langchain_documents()
     if not documents:
         return {"ok": True, "snapshots_indexed": 0, "note": "No data to index from all time."}
     index_documents_in_vectorstore(documents)
-    archive_documents_in_database(SUPABASE_DB_URL, documents)
+    archive_documents_in_database(db_url=DATABASE_URL, documents=documents, archive=SNAPSHOT_DATA_TABLE)
     return {"ok": True, "snapshots_indexed": len(documents)}
 
-@router.post("/index", dependencies=[Depends(require_cron_token)])
+@router.post("/index", dependencies=[Depends(require_rag_token)])
 def rag_index():
     documents = build_langchain_documents(lookback_hours=1)
     if not documents:
         return {"ok": True, "snapshots_indexed": 0, "note": "No data to index in the last hour."}
     index_documents_in_vectorstore(documents)
-    archive_documents_in_database(SUPABASE_DB_URL, documents)
+    archive_documents_in_database(db_url=DATABASE_URL, documents=documents, archive=SNAPSHOT_DATA_TABLE)
     return {"ok": True, "snapshots_indexed": len(documents)}
 
-@router.post("/ingest_docs", dependencies=[Depends(require_cron_token)])
+@router.post("/ingest_docs", dependencies=[Depends(require_rag_token)])
 def rag_ingest_docs():
     from app.rag.ingest_docs import ingest
     ingest()

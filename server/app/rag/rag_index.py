@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import List
 from datetime import datetime
 import psycopg
@@ -16,7 +17,7 @@ test_document = Document(
     },
 )
 
-
+SNAPSHOT_DATA_TABLE = os.getenv("SNAPSHOT_DATA_TABLE")
 
 def _stable_doc_id(document: Document) -> str:
     # Stable ID prevents duplicates when you rebuild.
@@ -38,7 +39,7 @@ _stable_doc_id(test_document)
 def archive_documents_in_database(
         db_url: str, 
         documents: List[Document],
-        archive: str = "snapshots",
+        archive: str = SNAPSHOT_DATA_TABLE,
 
         ) -> int:
     """

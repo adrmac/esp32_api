@@ -184,13 +184,15 @@ def resolve_time_range(plan: Dict[str, Any]) -> tuple[datetime, datetime]:
 
 
 import psycopg
-from app.rag.rag_snapshots import SUPABASE_DB_URL, DEVICE_ID  # or read env again
+DEVICE_ID = os.getenv("DEVICE_ID")
+DATABASE_URL = os.getenv("SUPABASE_DB_URL_IPV4")
+SNAPSHOT_DATA_TABLE = os.getenv("SNAPSHOT_DATA_TABLE")
 
 def fetch_snapshots_between(
     start_utc: datetime,
     end_utc: datetime,
     device_id: str = DEVICE_ID,
-    table: str = "snapshots",
+    table: str = SNAPSHOT_DATA_TABLE,
 ) -> List[Document]:
     sql = f"""
       select window_start, window_end, snapshot_text
@@ -201,7 +203,7 @@ def fetch_snapshots_between(
       order by window_start asc;
     """
     docs: List[Document] = []
-    with psycopg.connect(SUPABASE_DB_URL) as conn:
+    with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(sql, (device_id, start_utc, end_utc))
             for window_start, window_end, snapshot_text in cur.fetchall():

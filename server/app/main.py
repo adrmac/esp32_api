@@ -18,26 +18,26 @@ load_dotenv()  # take environment variables from .env file
 from supabase import create_client  # pip install supabase
 import uvicorn
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+DATABASE_URL = os.getenv("SUPABASE_URL")
 # Accept either service role or anon; prefer service role on the server.
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
-SUPABASE_TABLE = os.getenv("SUPABASE_TABLE", "readings")
+DATABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+DATABASE_TABLE = os.getenv("SUPABASE_TABLE")
 
 INGEST_TOKEN = os.getenv("INGEST_TOKEN")
 STATUS_TOKEN = os.getenv("STATUS_TOKEN")
 
 supabase = None
 
-if SUPABASE_URL and SUPABASE_KEY:
+if DATABASE_URL and DATABASE_KEY:
     try:
         from supabase import create_client
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        supabase = create_client(DATABASE_URL, DATABASE_KEY)
         print("[supabase] client initialized")
     except Exception as e:
         print("[supabase] init failed:", repr(e))
         supabase = None
 else:
-    print("[supabase] missing SUPABASE_URL or SUPABASE_*KEY; skipping client")
+    print("[supabase] missing DATABASE_URL or SUPABASE_*KEY; skipping client")
 
 
 ### Index loop ###
@@ -54,7 +54,7 @@ def insert_supabase(row: dict):
         return None
     try:
         # send as a list for maximum compatibility
-        res = supabase.table(SUPABASE_TABLE).insert([row]).execute()
+        res = supabase.table(DATABASE_TABLE).insert([row]).execute()
         # Supabase-py v2 returns a Postgres response with .data
         print("[supabase] insert data:", getattr(res, "data", None))
         return res

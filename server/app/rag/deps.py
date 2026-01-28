@@ -18,39 +18,27 @@ load_dotenv()
 # LangChain's PGVector works by creating its own collections/tables in your Postgres DB.
 
 # Supabase direct read/write access
-SUPABASE_URL = os.getenv("SUPABASE_DB_URL_IPV4")
 DEVICE_ID = os.getenv("DEVICE_ID")
 RAW_DATA_TABLE = os.getenv("RAW_DATA_TABLE", "readings")
-SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL_IPV4")
 
 
-# PGVECTOR_CONNECTION_STRING = SUPABASE_DB_URL with postgresql+psycopg2:// prefix
 # langchain-postgres uses SQLAlchemy under the hood, this is a SQLAlchemy URL dialect/driver specifier.
 PGVECTOR_CONNECTION_STRING = os.getenv("PGVECTOR_CONNECTION_STRING")
-
-# name the table here and it automatically appears in Supabase
-PGVECTOR_COLLECTION = os.getenv("PGVECTOR_COLLECTION", "esp32_rag")
+PGVECTOR_COLLECTION = os.getenv("RAG_SNAPSHOT_TABLE")
 
 
-# Ollama models -- use 'ollama ps' to see processing data, or 'ollama show [model]' to see model profile
-# OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "gemma2:latest") # no tool-calling support
-# OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.1:latest") # has tool-calling, requires strict prompting to constrain, defaults to huge context window and exploration space
-OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "qwen2.5:latest") 
-# has tool-calling and lighter defaults without prompting
-
-OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL") 
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL")
 
 # Number of documents to retrieve
 RAG_K = int(os.getenv("RAG_K", "25"))
 
-# error handling for missing cnnection string
+# error handling for a missing connection string
 def _require_env(name: str, value: Optional[str]) -> str:
     if not value:
         raise RuntimeError(
             f"Missing required env var: {name}. "
-            f"Set {name} to your Supabase Postgres connection string "
-            f"(e.g., postgresql+psycopg://...)."
-        )
+            f"Please set it in your .env file or environment.")
     return value
 
 
@@ -108,10 +96,10 @@ def get_retriever() -> VectorStoreRetriever:
 
 # This returns K top similarity search results to the prompt
 
+# -------------------------------------
 
 ### LlamaIndex functions ### 
-
-# trying this framework instead of LangChain, because it has a built in functionality for parsing NL > SQL queries and comparing them with RAG results, called SQLAutoVectorQueryEngine
+# trying this framework as an alternative to LangChain, because it has a built in functionality for parsing NL > SQL queries and comparing them with RAG results, called SQLAutoVectorQueryEngine
 
 from sqlalchemy import create_engine
 
@@ -128,7 +116,7 @@ from llama_index.core.prompts import PromptTemplate
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
 
-# This custom Query Engine class replaces the SQL Auto Vector Query Engine if needed. This is not necessary for current setup. We generated this because of problems finding the right default variable names in the synthesis prompt -- specifically {query_engine_response_str}. Keeping it here because it was good code.
+# This optional custom Query Engine class replaces the SQL Auto Vector Query Engine if needed. This is not necessary for current setup. We generated this because of problems finding the right default variable names in the synthesis prompt -- specifically {query_engine_response_str}. Keeping it here because it was good code.
 class TemperatureSafetyEngine(CustomQueryEngine):
     """Custom Engine to force-feed SQL and Vector results into Synthesis."""
     sql_engine: NLSQLTableQueryEngine
@@ -408,18 +396,25 @@ def get_sql_only_llamaindex_engine():
 
 from llama_index.core import VectorStoreIndex, StorageContext
 from llama_index.vector_stores.postgres import PGVectorStore
-SUPABASE_DB_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD", "")
+
+DATABASE = os.getenv("SUPABASE_DB", "")
+DATABASE_HOST = os.getenv("SUPABASE_IPV4_HOST", "")
+DATABASE_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD", "")
+DATABASE_PORT = os.getenv("SUPABASE_DB_PORT", "")
+DATABASE_USER = os.getenv("SUPABASE_USER_NAME", "")
+RAG_LITERATURE_TABLE = os.getenv("RAG_LITERATURE_TABLE", "")
+
 
 @lru_cache(maxsize=1)
 def get_vector_index_from_postgres() -> VectorStoreIndex:
         # connect vector store
     pgvs = PGVectorStore.from_params(
-        database="postgres",
-        host="aws-1-us-east-1.pooler.supabase.com",
-        password=SUPABASE_DB_PASSWORD,
-        port=5432,
-        user="postgres.yabbcqlzwirhqfwnwbij",
-        table_name="rag_literature_chunks",
+        database=DATABASE,
+        host=DATABASE_HOST,
+        password=DATABASE_PASSWORD,
+        port=DATABASE_PORT,
+        user=DATABASE_USER,
+        table_name=RAG_LITERATURE_TABLE,
         embed_dim=768, # nomic-embed-text is 768; must match Settings.embed_model dim
         # optionally schema_name="public"
     )

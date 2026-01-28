@@ -11,7 +11,7 @@ from langchain_core.documents import Document
 import os
 DEVICE_ID = os.getenv("DEVICE_ID")
 RAW_DATA_TABLE = os.getenv("RAW_DATA_TABLE")
-SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL_IPV4")
+DATABASE_URL = os.getenv("SUPABASE_DB_URL_IPV4")
 
 
 @dataclass(frozen=True)
@@ -92,7 +92,7 @@ def _define_hour_windows_from_start(
     if start_time:
         window_start = _floor_to_hour(start_time)
     else:
-        connection = psycopg.connect(SUPABASE_DB_URL)
+        connection = psycopg.connect(DATABASE_URL)
         earliest = _get_earliest_timestamp(
             connection=connection,
             timestamp_column_name="created_at"
@@ -239,7 +239,7 @@ def build_langchain_documents(
     This will be called in rag_index.py to index the hourly snapshots.
     """
 
-    connection = psycopg.connect(SUPABASE_DB_URL)
+    connection = psycopg.connect(DATABASE_URL)
 
     documents: List[Document] = []
 
