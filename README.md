@@ -50,12 +50,12 @@ Key aspects of the stack include:
 ### **Ingestion**
 
 `POST /ingest`  
- Ingests sensor payloads from ESP32 devices. Payload structure and parameters TBD.
+ Ingests sensor payloads from ESP32 devices. 
 
 ### **Time-Series Queries**
 
 `GET /timeseries`  
-Returns filtered time-series data based on query parameters (`sensor`, `from`, `to`, `avg`, `min`, `max`, etc.).
+Returns filtered time-series data based on query parameters (`sensor`, `from`, `to`, `avg`, etc.).
 
 ### **RAG & Semantic Endpoints**
 
