@@ -125,9 +125,9 @@ This repository follows a structured documentation layout inspired by best pract
 
 **Notes & Tutorials**
 
-* [`docs/notes/2025-12-17-open-source-agent-stack.md`](/blob/main/docs/2025-12-17-open-source-agent-stack.md) — Mapping out a free / open source agent development stack. 
+* [`docs/2025-12-17-open-source-agent-stack.md`](/docs/2025-12-17-open-source-agent-stack.md) — Mapping out the open source agent development toolkit. 
 
-* [`2026-01-27-rag-setup-and-next-steps.md`](/blob/main/docs/2026-01-27-rag-setup-and-next-steps) — Discussion of how the RAG endpoints work, and how I plan to use them in an AI-enhanced data visualization interface. 
+* [`docs/2026-01-27-rag-setup-and-next-steps.md`](/docs/2026-01-27-rag-setup-and-next-steps) — Discussion of how the RAG endpoints work, and how I plan to use them in an AI-enhanced data visualization interface. 
 
 * *(Future)* additional notes covering architectural decisions and integrations.
 
