@@ -7,10 +7,12 @@ from langchain_core.documents import Document
 
 from app.rag.deps import get_llm, get_sql_only_llamaindex_engine, get_retriever, get_llamaindex_query_engine
 
+import os
 import json
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import dateparser
+from psycopg import sql
 
 TZ = ZoneInfo("America/Los_Angeles")
 
@@ -23,11 +25,11 @@ PARTS = {
 
 @dataclass
 class Source:
-    kind: str
-    device_id: str
-    window_start: str
-    window_end: str
-    source: str
+    kind: Optional[str]
+    device_id: Optional[str]
+    window_start: Optional[str]
+    window_end: Optional[str]
+    source: Optional[str]
 
 def _list_snapshots_used(documents: List[Document]) -> List[Source]:
     sources: List[Source] = []
@@ -99,7 +101,9 @@ def plan_query(question: str) -> Dict[str, Any]:
             {"role": "user", "content": question}
         ]
     )
-    text = response.content.strip()
+    content = response.content
+    text = content if isinstance(content, str) else json.dumps(content)
+    text = text.strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
@@ -160,7 +164,7 @@ def resolve_time_range(plan: Dict[str, Any]) -> tuple[datetime, datetime]:
     # 2) Fallback: use dateparser on the raw question
     # Try to parse a datetime implied by phrases like "yesterday afternoon"
     dt = dateparser.parse(
-        plan,
+        str(plan.get("raw", "")),
         settings={
             "RELATIVE_BASE": now_local,
             "TIMEZONE": "America/Los_Angeles",
@@ -184,9 +188,9 @@ def resolve_time_range(plan: Dict[str, Any]) -> tuple[datetime, datetime]:
 
 
 import psycopg
-DEVICE_ID = os.getenv("DEVICE_ID")
-DATABASE_URL = os.getenv("SUPABASE_DB_URL_IPV4")
-SNAPSHOT_DATA_TABLE = os.getenv("SNAPSHOT_DATA_TABLE")
+DEVICE_ID = os.getenv("DEVICE_ID", "")
+DATABASE_URL = os.getenv("SUPABASE_DB_URL_IPV4", "")
+SNAPSHOT_DATA_TABLE = os.getenv("SNAPSHOT_DATA_TABLE", "")
 
 def fetch_snapshots_between(
     start_utc: datetime,
@@ -194,18 +198,19 @@ def fetch_snapshots_between(
     device_id: str = DEVICE_ID,
     table: str = SNAPSHOT_DATA_TABLE,
 ) -> List[Document]:
-    sql = f"""
+    # Strict psycopg/Pylance typing requires sql.SQL objects for dynamic table names, can't do simple f-strings here
+    query = sql.SQL("""
       select window_start, window_end, snapshot_text
       from {table}
       where device_id = %s
         and window_start >= %s
         and window_end <= %s
       order by window_start asc;
-    """
+    """).format(table=sql.Identifier(table))
     docs: List[Document] = []
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (device_id, start_utc, end_utc))
+            cur.execute(query, (device_id, start_utc, end_utc))
             for window_start, window_end, snapshot_text in cur.fetchall():
                 docs.append(
                     Document(
@@ -319,7 +324,7 @@ def build_agent():
     query_engine = get_llamaindex_query_engine()
 
     def temperature_analyst(question: str) -> str:
-        response: Response = query_engine.query(question)
+        response = query_engine.query(question)
         print_sources(response)
         return str(response)
 
@@ -343,13 +348,13 @@ def build_agent():
     return agent, context
 
 
-import os
 from llama_index.core.base.response.schema import Response
 RAG_K = int(os.getenv("RAG_K", "25"))
 
-def print_sources(resp: Response, max_chars: int = 800):
+def print_sources(resp: Any, max_chars: int = 800):
     print("\n=== SOURCE NODES USED ===")
-    for i, nws in enumerate(resp.source_nodes, 0):
+    source_nodes = getattr(resp, "source_nodes", []) or []
+    for i, nws in enumerate(source_nodes, 0):
         node = nws.node
         src = node.metadata.get("source", "unknown")
         print(f"\n--- #{i} score={nws.score:.4f} source={src} ---")

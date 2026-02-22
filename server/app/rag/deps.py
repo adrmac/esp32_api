@@ -18,17 +18,17 @@ load_dotenv()
 # LangChain's PGVector works by creating its own collections/tables in your Postgres DB.
 
 # Supabase direct read/write access
-DEVICE_ID = os.getenv("DEVICE_ID")
+DEVICE_ID = os.getenv("DEVICE_ID", "")
 RAW_DATA_TABLE = os.getenv("RAW_DATA_TABLE", "readings")
 
 
 # langchain-postgres uses SQLAlchemy under the hood, this is a SQLAlchemy URL dialect/driver specifier.
-PGVECTOR_CONNECTION_STRING = os.getenv("PGVECTOR_CONNECTION_STRING")
-PGVECTOR_COLLECTION = os.getenv("RAG_SNAPSHOT_TABLE")
+PGVECTOR_CONNECTION_STRING = os.getenv("PGVECTOR_CONNECTION_STRING", "")
+PGVECTOR_COLLECTION = os.getenv("RAG_SNAPSHOT_TABLE", "")
 
 
-OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL") 
-OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL")
+OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "") 
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "")
 
 # Number of documents to retrieve
 RAG_K = int(os.getenv("RAG_K", "25"))
@@ -103,8 +103,13 @@ def get_retriever() -> VectorStoreRetriever:
 
 from sqlalchemy import create_engine
 
-from llama_index.core import Settings, SQLDatabase, VectorStoreIndex, Document as LlamaDocument, PromptTemplate
 
+# pip install llama-index
+# pip install llama-index-llms-ollama
+# pip install llama-index-embeddings-ollama
+# pip install llama-index-vector-stores-postgres
+
+from llama_index.core import Settings, SQLDatabase, VectorStoreIndex, Document as LlamaDocument, PromptTemplate
 from llama_index.core.query_engine import NLSQLTableQueryEngine, SQLAutoVectorQueryEngine, RetrieverQueryEngine, SQLJoinQueryEngine
 from llama_index.core.tools import QueryEngineTool
 from llama_index.core.retrievers import VectorIndexAutoRetriever
@@ -112,9 +117,20 @@ from llama_index.core.vector_stores import MetadataInfo, VectorStoreInfo
 from llama_index.core.query_engine.sql_join_query_engine import SQLAugmentQueryTransform
 from llama_index.core.query_engine import CustomQueryEngine
 from llama_index.core.prompts import PromptTemplate
+from llama_index.core.response_synthesizers.type import ResponseMode
 
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
+
+from llama_index.core import VectorStoreIndex, StorageContext 
+from llama_index.vector_stores.postgres import PGVectorStore 
+
+DATABASE = os.getenv("SUPABASE_DB", "")
+DATABASE_HOST = os.getenv("SUPABASE_IPV4_HOST", "")
+DATABASE_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD", "")
+DATABASE_PORT = os.getenv("SUPABASE_DB_PORT", "")
+DATABASE_USER = os.getenv("SUPABASE_USER_NAME", "")
+RAG_LITERATURE_TABLE = os.getenv("RAG_LITERATURE_TABLE", "")
 
 # This optional custom Query Engine class replaces the SQL Auto Vector Query Engine if needed. This is not necessary for current setup. We generated this because of problems finding the right default variable names in the synthesis prompt -- specifically {query_engine_response_str}. Keeping it here because it was good code.
 class TemperatureSafetyEngine(CustomQueryEngine):
@@ -128,7 +144,7 @@ class TemperatureSafetyEngine(CustomQueryEngine):
     def custom_query(self, query_str: str):
         # 1. Run SQL
         sql_res = self.sql_engine.query(query_str)
-        sql_data = str(sql_res.response)
+        sql_data = str(sql_res)
 
         # 2. Transform Query for Vector Search
         # We pass the SQL result into the transformer
@@ -143,7 +159,7 @@ class TemperatureSafetyEngine(CustomQueryEngine):
 
         # 3. Run Vector Search
         vector_res = self.vector_engine.query(search_term)
-        vector_data = str(vector_res.response)
+        vector_data = str(vector_res)
 
         # 4. Final Synthesis - YOU define the keys here!
         final_response = self.llm.predict(
@@ -394,15 +410,6 @@ def get_sql_only_llamaindex_engine():
         # synthesize_response=False,
         )
 
-from llama_index.core import VectorStoreIndex, StorageContext
-from llama_index.vector_stores.postgres import PGVectorStore
-
-DATABASE = os.getenv("SUPABASE_DB", "")
-DATABASE_HOST = os.getenv("SUPABASE_IPV4_HOST", "")
-DATABASE_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD", "")
-DATABASE_PORT = os.getenv("SUPABASE_DB_PORT", "")
-DATABASE_USER = os.getenv("SUPABASE_USER_NAME", "")
-RAG_LITERATURE_TABLE = os.getenv("RAG_LITERATURE_TABLE", "")
 
 
 @lru_cache(maxsize=1)
@@ -517,7 +524,7 @@ def get_llamaindex_query_engine():
     retriever_query_engine = RetrieverQueryEngine.from_args(
         retriever=vector_auto_retriever,
         llm=Settings.llm,
-        response_mode="simple_summarize"
+        response_mode=ResponseMode.SIMPLE_SUMMARIZE
         )
 
     #debugging
@@ -574,4 +581,3 @@ def get_llamaindex_query_engine():
     #     synthesis_prompt=CUSTOM_SYNTHESIS_PROMPT,
     #     llm=Settings.llm
     # )
-

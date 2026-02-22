@@ -18,7 +18,7 @@ from fastapi import Header, HTTPException
 # 4. if it doesn't match, return 401 Unauthorized
 
 RAG_TOKEN = os.getenv("RAG_TOKEN")
-SNAPSHOT_DATA_TABLE = os.getenv("SNAPSHOT_DATA_TABLE")
+SNAPSHOT_DATA_TABLE = os.getenv("SNAPSHOT_DATA_TABLE", "")
 
 # FastAPI will look for X-RAG-Token based on 'x_rag_token' parameter
 def require_rag_token(x_rag_token: str = Header(default="")):
@@ -34,7 +34,7 @@ router = APIRouter()
 class QueryReq(BaseModel):
     question: str
 
-DATABASE_URL = os.getenv("SUPABASE_DB_URL_IPV4")
+DATABASE_URL = os.getenv("SUPABASE_DB_URL_IPV4", "")
 DEVICE_ID = os.getenv("DEVICE_ID")
 
 # this one is for browser use with a query param

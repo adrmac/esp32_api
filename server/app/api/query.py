@@ -1,10 +1,8 @@
-from app.api.rag_router import rag_query
+from app.api.rag_router import QueryReq, rag_query
 
 def query(query: str):
-    json = {
-        "question": query
-    }
-    response = rag_query(query)
+    request = QueryReq(question=query)
+    response = rag_query(request)
     return response
 
 if __name__ == "__main__":

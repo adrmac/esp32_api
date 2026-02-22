@@ -5,13 +5,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Dict, Any
 
 import psycopg  # psycopg v3, not psycopg2
+from psycopg import sql
 
 from langchain_core.documents import Document
 
 import os
-DEVICE_ID = os.getenv("DEVICE_ID")
-RAW_DATA_TABLE = os.getenv("RAW_DATA_TABLE")
-DATABASE_URL = os.getenv("SUPABASE_DB_URL_IPV4")
+DEVICE_ID = os.getenv("DEVICE_ID", "")
+RAW_DATA_TABLE = os.getenv("RAW_DATA_TABLE", "")
+DATABASE_URL = os.getenv("SUPABASE_DB_URL_IPV4", "")
 
 
 @dataclass(frozen=True)
@@ -51,23 +52,31 @@ def _get_earliest_timestamp(
     timestamp_column_name: str = "ts",
     device_id: Optional[str] = None,        
 ) -> Optional[datetime]:
+    # Strict psycopg/Pylance typing requires sql.SQL objects for dynamic table names, can't do simple f-strings here
     if device_id is None:
-        sql = f"""
+        query = sql.SQL("""
             select min({timestamp_column_name}) 
             from {table_name};
-        """
+        """).format(
+            timestamp_column_name=sql.Identifier(timestamp_column_name),
+            table_name=sql.Identifier(table_name),
+        )
         params = None
     else:
-        sql = f"""
+        query = sql.SQL("""
             select min({timestamp_column_name})
             from {table_name}
             where device_id = %(device_id)s;
-        """
+        """).format(
+            timestamp_column_name=sql.Identifier(timestamp_column_name),
+            table_name=sql.Identifier(table_name),
+        )
         params = {"device_id": device_id}
 
     with connection.cursor() as cursor:
-        cursor.execute(sql, params)
-        earliest = cursor.fetchone()[0]
+        cursor.execute(query, params)
+        fetched = cursor.fetchone()
+        earliest = fetched[0] if fetched is not None else None
 
     if earliest is None:
         return None
@@ -97,6 +106,9 @@ def _define_hour_windows_from_start(
             connection=connection,
             timestamp_column_name="created_at"
         )
+        if earliest is None:
+            connection.close()
+            return []
         window_start = _floor_to_hour(earliest)
         connection.close()
 
@@ -160,7 +172,8 @@ def _fetch_hour_stats(
     """
     Returns None if no data in that hour window.
     """
-    sql = f"""
+    # Strict psycopg/Pylance typing requires sql.SQL objects for dynamic table names, can't do simple f-strings here
+    query = sql.SQL("""
         select
           count(*) as n,
           min({temperature_c_column_name}) as t_min_c,
@@ -172,11 +185,17 @@ def _fetch_hour_stats(
           min({humidity_column_name}) as h_min,
           max({humidity_column_name}) as h_max,
           avg({humidity_column_name}) as h_avg
-        from {RAW_DATA_TABLE}
+        from {raw_data_table}
         where device_id = %(device_id)s
           and {timestamp_column_name} >= %(start)s
           and {timestamp_column_name} <  %(end)s;
-    """
+    """).format(
+        temperature_c_column_name=sql.Identifier(temperature_c_column_name),
+        temperature_f_column_name=sql.Identifier(temperature_f_column_name),
+        humidity_column_name=sql.Identifier(humidity_column_name),
+        raw_data_table=sql.Identifier(RAW_DATA_TABLE),
+        timestamp_column_name=sql.Identifier(timestamp_column_name),
+    )
 
     # for psycopg v3, the %s placeholders won't work if you pass in the SnapshotWindow dataclass
     # so we need to unpack it into a dict
@@ -187,13 +206,14 @@ def _fetch_hour_stats(
     }
 
     cursor = connection.cursor()
-    cursor.execute(sql, params)
+    cursor.execute(query, params)
     row = cursor.fetchone()
     cursor.close()
 
+    if row is None:
+        return None
     count = int(row[0])
-
-    if not row or count == 0:
+    if count == 0:
         return None
 
     return HourlySnapshot(
