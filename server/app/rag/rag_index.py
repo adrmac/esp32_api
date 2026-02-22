@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 from typing import List
 from datetime import datetime
-import psycopg
+import psycopg # pip install psycopg[binary]
+from psycopg import sql
 from langchain_core.documents import Document
 
 from app.rag.deps import get_vectorstore
@@ -17,7 +18,7 @@ test_document = Document(
     },
 )
 
-SNAPSHOT_DATA_TABLE = os.getenv("SNAPSHOT_DATA_TABLE")
+SNAPSHOT_DATA_TABLE = os.getenv("SNAPSHOT_DATA_TABLE", "")
 
 def _stable_doc_id(document: Document) -> str:
     # Stable ID prevents duplicates when you rebuild.
@@ -49,7 +50,8 @@ def archive_documents_in_database(
 
     # the 'on conflict ... do update' lines prevent duplicates
     # it requires there be a unique constraint in the table setup on (device_id, window_start, window_end)
-    sql = f"""
+    # Strict psycopg/Pylance typing requires sql.SQL objects for dynamic table names, can't do simple f-strings here
+    query = sql.SQL("""
       insert into {archive} (
         device_id, 
         window_start, 
@@ -59,7 +61,7 @@ def archive_documents_in_database(
       values (%s, %s, %s, %s)
       on conflict (device_id, window_start, window_end)
       do update set snapshot_text = excluded.snapshot_text
-    """
+    """).format(sql.Identifier(archive))
 
     connection = psycopg.connect(db_url)
     cursor = connection.cursor()
@@ -68,7 +70,7 @@ def archive_documents_in_database(
         for document in documents:
             metadata = document.metadata or {}
             cursor.execute(
-                sql,
+                query,
                 (
                     metadata["device_id"],
                     metadata["window_start"],

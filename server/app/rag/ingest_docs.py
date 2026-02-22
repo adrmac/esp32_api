@@ -1,10 +1,13 @@
 ## 1.) Choose the right document loaders
 
 from llama_index.core import SimpleDirectoryReader
-from llama_index.readers.web import SimpleWebPageReader
 from llama_index.core import Document
 
+# To read webpages: replaced llama-index-readers-web with custom requests + BeautifulSoup fallback to avoid playwright dependency issues in aarch64 environment
 from pathlib import Path
+import importlib
+import requests
+from bs4 import BeautifulSoup
 
 #Pre-defined web documents URLs
 from app.rag.docs.urls import urls
@@ -27,7 +30,28 @@ pdf_docs = SimpleDirectoryReader(
 # .metadata["file_path"]
 
 
-web_docs = SimpleWebPageReader().load_data(urls)
+def load_web_docs() -> list[Document]:
+    # llama-index-readers-web pulls playwright, which is unavailable in this aarch64 env.
+    # Prefer the package when available; otherwise fallback to requests + BeautifulSoup.
+    try:
+        web_reader_module = importlib.import_module("llama_index.readers.web")
+        SimpleWebPageReader = getattr(web_reader_module, "SimpleWebPageReader")
+        return SimpleWebPageReader().load_data(urls)
+    except Exception:
+        documents: list[Document] = []
+        for url in urls:
+            try:
+                response = requests.get(url, timeout=20)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, "html.parser")
+                text = soup.get_text(separator="\n", strip=True)
+                documents.append(Document(text=text, metadata={"url": url, "source": url}))
+            except Exception as exc:
+                print(f"[ingest_docs] Failed to load {url}: {exc}")
+        return documents
+
+
+web_docs = load_web_docs()
 
 
 # Normalize metadata (important for retrieval)
@@ -95,8 +119,8 @@ DATABASE_USER = os.getenv("SUPABASE_USER_NAME", "")
 RAG_LITERATURE_TABLE = os.getenv("RAG_LITERATURE_TABLE", "")
 
 
-OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL")
-EMBED_DIM = os.getenv("EMBED_DIM", 768)
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "")
+EMBED_DIM = 768
 
 from llama_index.core.schema import TextNode
 
