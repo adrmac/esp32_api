@@ -18,13 +18,14 @@ load_dotenv()  # take environment variables from .env file
 from supabase import create_client  # pip install supabase
 import uvicorn
 
-DATABASE_URL = os.getenv("SUPABASE_URL")
+DATABASE_URL = os.getenv("SUPABASE_URL", "")
 # Accept either service role or anon; prefer service role on the server.
 DATABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
-DATABASE_TABLE = os.getenv("SUPABASE_TABLE")
+RAW_DATA_TABLE = os.getenv("RAW_DATA_TABLE", "readings")
+SNAPSHOT_DATA_TABLE = os.getenv("SNAPSHOT_DATA_TABLE", "snapshots")
 
-INGEST_TOKEN = os.getenv("INGEST_TOKEN")
-STATUS_TOKEN = os.getenv("STATUS_TOKEN")
+INGEST_TOKEN = os.getenv("INGEST_TOKEN", "")
+STATUS_TOKEN = os.getenv("STATUS_TOKEN", "")
 
 supabase = None
 
@@ -54,13 +55,55 @@ def insert_supabase(row: dict):
         return None
     try:
         # send as a list for maximum compatibility
-        res = supabase.table(DATABASE_TABLE).insert([row]).execute()
+        res = supabase.table(RAW_DATA_TABLE).insert([row]).execute()
         # Supabase-py v2 returns a Postgres response with .data
         print("[supabase] insert data:", getattr(res, "data", None))
         return res
     except Exception as e:
         print("[supabase] insert error:", repr(e))
         return None
+
+
+def get_supabase(
+        table,
+        device_id=None,
+        start_ts=None,
+        end_ts=None,
+        limit=100,
+        offset=0,
+        order_desc=True,
+        time_column=None,
+        ):
+    if supabase is None:
+        return []
+    try:
+        selected_time_column = time_column
+        if selected_time_column is None:
+            selected_time_column = "window_start" if table == SNAPSHOT_DATA_TABLE else "ts"
+
+        query = (
+            supabase.table(table)
+            .select("*")
+            .order(selected_time_column, desc=order_desc)
+            .limit(limit)
+            .range(offset, offset + limit - 1)
+        )
+        if device_id is not None:
+            query = query.eq("device_id", device_id)
+        if start_ts is not None:
+            query = query.gte(selected_time_column, start_ts)
+        if end_ts is not None:
+            query = query.lte(selected_time_column, end_ts)
+        response = query.execute()
+        print(
+            f"[supabase] get_supabase: got {len(getattr(response, 'data', []))} rows from '{table}' "
+            f"(time_column={selected_time_column})"
+        )
+        return getattr(response, "data", [])
+    except Exception as e:
+        print("[supabase] get_supabase error:", repr(e))
+        return []
+
 
 
 latest_reading = None
@@ -101,6 +144,33 @@ async def ingest(request: Request, x_token: str = Header(None)):
     latest_reading = data
 
     return {"ok": True, "supabase": sb_status}
+
+
+@app.get("/timeseries")
+def get_readings(
+    token: str = Query(default=""), 
+    limit: int = Query(default=100, lte=1000),
+    offset: int = Query(default=0, ge=0),
+    table: str = Query(default=RAW_DATA_TABLE),
+    start_ts: str = Query(default=None),
+    end_ts: str = Query(default=None),
+    device_id: str = Query(default=None),
+    ):
+    if token != STATUS_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    rows = get_supabase(
+        table=table, 
+        limit=limit, 
+        offset=offset, 
+        start_ts=start_ts, 
+        end_ts=end_ts, 
+        device_id=device_id
+        )
+
+    return {"ok": True, table: rows}
+
+
 
 if __name__ == "__main__":
     import uvicorn
