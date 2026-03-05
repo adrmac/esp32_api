@@ -5,41 +5,52 @@ from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 import threading
+from pathlib import Path
 
 app = FastAPI()
+
+
+from fastapi.middleware.cors import CORSMiddleware
+
+# Allow CORS from any origin
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 from app.api.rag_router import router as rag_router
 
 # add endpoints from rag_router.py to the main app, prefixed with /rag, and tagged as 'rag' in the FastAPI /docs UI
 app.include_router(rag_router, prefix="/rag", tags=["rag"])
 
-load_dotenv()  # take environment variables from .env file
+# Load repo-root .env explicitly so behavior is stable across working directories.
+DOTENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(dotenv_path=DOTENV_PATH)
 
-from supabase import create_client  # pip install supabase
 import uvicorn
+from app.api.weather_hourly import get_nws_hourly_weather
+from app.api.weather_open_meteo import get_open_meteo_hourly_weather
+from app.db.supabase_queries import (
+    get_supabase,
+    get_supabase_aggregated,
+    get_supabase_summary,
+    insert_supabase,
+    supabase as supabase_client,
+)
 
-DATABASE_URL = os.getenv("SUPABASE_URL", "")
-# Accept either service role or anon; prefer service role on the server.
-DATABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
 RAW_DATA_TABLE = os.getenv("RAW_DATA_TABLE", "readings")
 SNAPSHOT_DATA_TABLE = os.getenv("SNAPSHOT_DATA_TABLE", "snapshots")
 
 INGEST_TOKEN = os.getenv("INGEST_TOKEN", "")
 STATUS_TOKEN = os.getenv("STATUS_TOKEN", "")
-
-supabase = None
-
-if DATABASE_URL and DATABASE_KEY:
-    try:
-        from supabase import create_client
-        supabase = create_client(DATABASE_URL, DATABASE_KEY)
-        print("[supabase] client initialized")
-    except Exception as e:
-        print("[supabase] init failed:", repr(e))
-        supabase = None
-else:
-    print("[supabase] missing DATABASE_URL or SUPABASE_*KEY; skipping client")
-
+NWS_DEFAULT_STATION = os.getenv("NWS_DEFAULT_STATION", "KBFI")
+NWS_DEFAULT_TZ = os.getenv("NWS_DEFAULT_TZ", "America/Los_Angeles")
+OPEN_METEO_DEFAULT_LAT = float(os.getenv("OPEN_METEO_DEFAULT_LAT", "47.6225"))
+OPEN_METEO_DEFAULT_LON = float(os.getenv("OPEN_METEO_DEFAULT_LON", "-122.3118"))
 
 ### Index loop ###
 @app.on_event("startup")
@@ -48,69 +59,11 @@ def start_index_loop():
     thread = threading.Thread(target=index_loop, daemon=True)
     thread.start()
 
-
-
-def insert_supabase(row: dict):
-    if supabase is None:
-        return None
-    try:
-        # send as a list for maximum compatibility
-        res = supabase.table(RAW_DATA_TABLE).insert([row]).execute()
-        # Supabase-py v2 returns a Postgres response with .data
-        print("[supabase] insert data:", getattr(res, "data", None))
-        return res
-    except Exception as e:
-        print("[supabase] insert error:", repr(e))
-        return None
-
-
-def get_supabase(
-        table,
-        device_id=None,
-        start_ts=None,
-        end_ts=None,
-        limit=100,
-        offset=0,
-        order_desc=True,
-        time_column=None,
-        ):
-    if supabase is None:
-        return []
-    try:
-        selected_time_column = time_column
-        if selected_time_column is None:
-            selected_time_column = "window_start" if table == SNAPSHOT_DATA_TABLE else "ts"
-
-        query = (
-            supabase.table(table)
-            .select("*")
-            .order(selected_time_column, desc=order_desc)
-            .limit(limit)
-            .range(offset, offset + limit - 1)
-        )
-        if device_id is not None:
-            query = query.eq("device_id", device_id)
-        if start_ts is not None:
-            query = query.gte(selected_time_column, start_ts)
-        if end_ts is not None:
-            query = query.lte(selected_time_column, end_ts)
-        response = query.execute()
-        print(
-            f"[supabase] get_supabase: got {len(getattr(response, 'data', []))} rows from '{table}' "
-            f"(time_column={selected_time_column})"
-        )
-        return getattr(response, "data", [])
-    except Exception as e:
-        print("[supabase] get_supabase error:", repr(e))
-        return []
-
-
-
 latest_reading = None
 
 @app.get("/ping")
 def ping():
-    return {"pong": True, "sqlite": True, "supabase": bool(supabase)}
+    return {"pong": True, "sqlite": True, "supabase": bool(supabase_client)}
 
 @app.get("/latest")
 def get_latest(token: str = Query(default="")):
@@ -137,7 +90,7 @@ async def ingest(request: Request, x_token: str = Header(None)):
 
     # Supabase write (if configured)
     sb_status = None
-    if supabase:
+    if supabase_client:
         sb_res = insert_supabase(data)
         sb_status = "ok" if sb_res and getattr(sb_res, "data", None) else "error"
 
@@ -155,9 +108,31 @@ def get_readings(
     start_ts: str = Query(default=None),
     end_ts: str = Query(default=None),
     device_id: str = Query(default=None),
+    order_desc: bool = Query(default=True),
+    bucket: int = Query(default=None, ge=1),
+    aggregate_mode: str = Query(default="full"),
     ):
     if token != STATUS_TOKEN:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if bucket is not None:
+        if table != RAW_DATA_TABLE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Aggregation currently supports only table='{RAW_DATA_TABLE}'",
+            )
+        aggregates = get_supabase_aggregated(
+            table=table,
+            bucket_seconds=bucket,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            device_id=device_id,
+            limit=limit,
+            offset=offset,
+            order_desc=order_desc,
+            aggregate_mode="lite" if aggregate_mode == "lite" else "full",
+        )
+        return {"ok": True, "bucket": bucket, "aggregate_mode": aggregate_mode, "aggregates": aggregates}
 
     rows = get_supabase(
         table=table, 
@@ -165,10 +140,82 @@ def get_readings(
         offset=offset, 
         start_ts=start_ts, 
         end_ts=end_ts, 
-        device_id=device_id
+        device_id=device_id,
+        order_desc=order_desc,
         )
 
     return {"ok": True, table: rows}
+
+
+@app.get("/timeseries/summary")
+def get_readings_summary(
+    token: str = Query(default=""),
+    table: str = Query(default=RAW_DATA_TABLE),
+    start_ts: str = Query(default=None),
+    end_ts: str = Query(default=None),
+    device_id: str = Query(default=None),
+):
+    if token != STATUS_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if table != RAW_DATA_TABLE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Summary currently supports only table='{RAW_DATA_TABLE}'",
+        )
+
+    summary = get_supabase_summary(
+        table=table,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        device_id=device_id,
+    )
+    return {"ok": True, "summary": summary}
+
+
+@app.get("/weather/hourly")
+def get_weather_hourly(
+    token: str = Query(default=""),
+    provider: str = Query(default="noaa"),
+    station: str = Query(default=NWS_DEFAULT_STATION),
+    latitude: float = Query(default=OPEN_METEO_DEFAULT_LAT),
+    longitude: float = Query(default=OPEN_METEO_DEFAULT_LON),
+    start_ts: str = Query(default=None),
+    end_ts: str = Query(default=None),
+    tz: str = Query(default=NWS_DEFAULT_TZ),
+    page_limit: int = Query(default=500, ge=1, le=500),
+    # 30-day weather pulls may require >50 pages depending on station report cadence.
+    max_pages: int = Query(default=10, ge=1, le=200),
+):
+    if token != STATUS_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        provider_name = provider.lower()
+        if provider_name == "openmeteo":
+            result = get_open_meteo_hourly_weather(
+                latitude=latitude,
+                longitude=longitude,
+                start_ts=start_ts,
+                end_ts=end_ts,
+                tz_name=tz,
+            )
+        else:
+            result = get_nws_hourly_weather(
+                station=station,
+                start_ts=start_ts,
+                end_ts=end_ts,
+                tz_name=tz,
+                page_limit=page_limit,
+                max_pages=max_pages,
+            )
+            result["provider"] = "noaa"
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Weather API fetch failed: {exc!r}") from exc
+
+    return {"ok": True, **result}
 
 
 

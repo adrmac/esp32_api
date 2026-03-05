@@ -3,7 +3,7 @@ import urequests
 from machine import I2C, Pin
 
 from LCD import show_reading
-from secrets import WIFI_SSID, WIFI_PASS, SERVER, TOKEN, DEVICE_ID
+from secrets import WIFI_SSID, WIFI_PASS, SERVER_ENDPOINT, TOKEN, DEVICE_ID
 
 
 # ---- Wi-Fi connect ----
@@ -87,7 +87,7 @@ while True:
         # 4) POST to FastAPI
         try:
             r = urequests.post(
-                SERVER,
+                SERVER_ENDPOINT,
                 headers={
                     "Content-Type": "application/json",
                     "X-Token": TOKEN,

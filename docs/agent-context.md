@@ -100,3 +100,63 @@ Run Pylance/VS Code diagnostics refresh and confirm the previous `QueryNoTemplat
   - `runtime.txt` requests `python-3.10.11`.
   - Local active venv is Python `3.12.9`.
 - Risk note: dependency resolution can differ between 3.12 (local) and 3.10 (Cloud Run) if any pinned package dropped/changed 3.10 wheels.
+
+## Milestone update: Cloud Build trigger diagnosis
+- Confirmed repo currently has no `Dockerfile` and no `cloudbuild.yaml`.
+- This explains trigger error: manual Cloud Build trigger requires a build definition in repo or trigger config.
+- Likely prior deployment path used Cloud Run source deploy/buildpacks rather than standalone Cloud Build trigger from repo files.
+- Next step options: add `cloudbuild.yaml`, add `Dockerfile`, or deploy directly from source in Cloud Run UI/CLI.
+
+## Milestone update: Cloud Run vs Cloud Build flow clarification
+- Clarified that "Connect repository" in Cloud Build only creates SCM connection metadata; it does not define build type by itself.
+- The old working flow likely used Cloud Run source deploy with buildpacks settings (configured in Cloud Run deploy UI), not a standalone Cloud Build trigger requiring a repo `Dockerfile`/`cloudbuild.yaml`.
+- For current repo layout (`requirements.txt` at root, app import path under `server/app`), recommended start command for buildpacks is to set `PYTHONPATH=server` and run `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
+
+## Milestone update: Cloud Run URL continuity guidance
+- Clarified that service URL stays the same if deploying new revisions to the existing Cloud Run service name.
+- Recommended creating a new trigger (or source deploy) that targets the existing service, rather than creating a new service.
+
+## Milestone update: server-side aggregation helper draft
+- Added `server/app/db/supabase_queries.py` with `get_supabase_aggregated()` using `psycopg` + parameterized SQL (`date_bin`) for on-demand bucketed aggregation.
+- Added `server/app/db/__init__.py` package file.
+- Updated `server/app/main.py`:
+  - imports `get_supabase_aggregated`
+  - adds optional `/timeseries` query param `bucket` (seconds)
+  - returns raw rows when `bucket` omitted
+  - returns `{ ok, bucket, aggregates }` when `bucket` provided
+  - rejects aggregation for non-`readings` tables for now
+  - cleaned duplicate `load_dotenv()` call, keeping explicit repo-root `.env` load
+- Validation: `pyright app/main.py app/db/supabase_queries.py` => `0 errors`.
+- Caveat: aggregate helper requires `SUPABASE_DB_URL_IPV4` (direct Postgres connection URL); raw `/timeseries` path still works with only `SUPABASE_URL` + key.
+
+## Milestone update: moved Supabase raw helpers into db module
+- Moved `insert_supabase()` and raw `get_supabase()` from `server/app/main.py` to `server/app/db/supabase_queries.py`.
+- Centralized Supabase REST client initialization in `server/app/db/supabase_queries.py` and exported `supabase` for health checks.
+- Updated `server/app/main.py` to import and use:
+  - `insert_supabase`
+  - `get_supabase`
+  - `get_supabase_aggregated`
+  - `supabase as supabase_client`
+- `ping()` now reports `bool(supabase_client)`.
+- Validation:
+  - `pyright app/main.py app/db/supabase_queries.py` => `0 errors`
+  - import smoke test succeeds and raw helper returns rows.
+
+## Milestone update: aggregate endpoint empty-array root cause fixed
+- Diagnosed `useESP32Aggregates` returning empty array with no frontend error.
+- Root cause was backend SQL in `get_supabase_aggregated()`:
+  - Postgres `AmbiguousParameter` when optional params were `None` in predicates like `(%(device_id)s is null or device_id = %(device_id)s)`.
+  - Helper catches exceptions and returned `[]`, so frontend saw no HTTP error.
+- Fixed by casting parameter placeholders in SQL:
+  - `%(device_id)s::text`
+  - `%(start_ts)s::timestamptz`
+  - `%(end_ts)s::timestamptz`
+- Verified aggregate helper now returns rows for 7-day / 1-hour bucket query.
+
+## Milestone update: aggregate bucket metadata fields added
+- Extended `get_supabase_aggregated()` SQL output with:
+  - `bucket_end`
+  - `first_ts`
+  - `last_ts`
+- This helps identify partial buckets and actual data coverage within each bucket.
+- Verified helper returns the new fields.
