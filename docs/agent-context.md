@@ -160,3 +160,30 @@ Run Pylance/VS Code diagnostics refresh and confirm the previous `QueryNoTemplat
   - `last_ts`
 - This helps identify partial buckets and actual data coverage within each bucket.
 - Verified helper returns the new fields.
+
+## Milestone update: interview-readiness assessment for AI web developer roles
+- Current objective: Reassess `esp32_api` as the primary portfolio project for AI web developer interview prep and identify the highest-value improvements for the next 3-5 days.
+- What changed: Reviewed `README.md`, `server/app/main.py`, `server/app/api/rag_router.py`, `server/app/rag/deps.py`, `server/app/rag/rag_query.py`, `server/app/rag/rag_index.py`, and current dependency/test footprint. Confirmed the project already demonstrates a credible stack match: FastAPI backend, Supabase/Postgres, RAG endpoints, Ollama/LangChain/LlamaIndex usage, and planned UI integration. Also confirmed major readiness gaps: no visible automated tests, permissive CORS in `main.py`, unauthenticated `/rag/query` routes, secrets loaded loosely in `rag/deps.py`, and some README/run-command drift versus current app layout.
+- Next step: Prioritize a short sprint focused on tests, security hardening, clearer architecture/demo docs, and a polished interview narrative around this codebase.
+- Blockers/risks: Some improvements depend on local model/runtime availability (`Ollama`, Postgres/Supabase, env vars), so deliverables should emphasize code quality and explainable design even if full end-to-end deployment is not completed this week.
+- Branch and latest commit hash: Branch/hash not checked in this pass.
+
+## Milestone update: pre-interview prep list reframed
+- Current objective: Reframe the prep plan around a canonical Planning -> Retrieval -> UI Execution workflow, cross-stack architectural translation, and enterprise Claude orchestration.
+- What changed: Captured the need to explicitly discuss:
+  - Planning/RAG Retrieval/UI Execution as the canonical workflow for AI web apps.
+  - Common architectural patterns across Python/TypeScript and .NET/C#/Blazor, including dependency injection, middleware, typed contracts, async programming, and service boundaries.
+  - When the codebase is operating in object-composition mode (framework objects, engines, services) versus functional mode (pure transforms, parsing, planning, normalization).
+  - General Dynamics / GDIT-style mission use cases: AI sidecar services for legacy modernization, secure operator workflows, anomaly detection, summarization, retrieval over policy/standards, and human-in-the-loop execution.
+  - Claude orchestration strategy: prefer a provider boundary that can use Anthropic directly or through Bedrock, while keeping app-level orchestration model-agnostic.
+  - A likely repo cleanup direction: separate LangChain and LlamaIndex responsibilities into clearer provider/service layers instead of mixing them in `server/app/rag/deps.py`.
+- Next step: Present the rewritten pre-interview checklist to the user and, if requested, convert it into implementation tasks against specific files.
+- Blockers/risks: Public General Dynamics/GDIT use-case alignment is inferred from official public material and the recruiter description, not from a private job architecture document.
+- Branch and latest commit hash: Branch/hash not checked in this pass.
+
+## Milestone update: concrete 5-day prep sprint drafted
+- Current objective: Convert the interview-prep themes into a time-boxed schedule with exact deliverables against `esp32_api`.
+- What changed: Prepared a 5-day plan centered on: architecture and README cleanup, test coverage, security hardening, clearer LangChain/LlamaIndex separation, Claude/provider-boundary positioning, and interview rehearsal language tied to the repo's Planning -> Retrieval -> UI Execution flow.
+- Next step: Share the detailed day-by-day plan with file targets and expected interview talking points.
+- Blockers/risks: Time is limited, so the plan should prioritize defensible improvements over broad refactors or speculative framework churn.
+- Branch and latest commit hash: Branch/hash not checked in this pass.
