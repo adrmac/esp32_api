@@ -198,3 +198,13 @@ Run Pylance/VS Code diagnostics refresh and confirm the previous `QueryNoTemplat
 - Next step: Review the new docs for wording accuracy, then move to tests and security hardening.
 - Blockers/risks: README now references the external `esp32_ui` deployment by convention; if the deployment URL or repo boundaries change later, docs should be updated to match.
 - Branch and latest commit hash: `apr2026-sprint` @ `d0dc279`.
+
+## Milestone update: cherry-pick conflict resolved onto main
+- Current objective: Move the README/architecture cleanup commit from a separate branch onto `main`.
+- What changed:
+  - Resolved a cherry-pick conflict in `docs/agent-context.md` by keeping both the interview-prep milestone notes and the later README/architecture milestone note.
+  - Continued the cherry-pick successfully, creating commit `0382172` on `main`.
+  - Confirmed git status is now clean and `main` is ahead of `origin/main` by 1 commit.
+- Next step: Push `main` when ready, then continue with the next documentation or testing task.
+- Blockers/risks: None in the git state currently; the main remaining decision is when to push `main`.
+- Branch and latest commit hash: `main` @ `0382172`.
