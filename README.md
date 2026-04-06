@@ -1,140 +1,154 @@
-# **ESP32 Sensor API & Chat Agent**
+# SQL + LLM analysis of environmental sensor data
 
-A data ingestion, retrieval, and analysis backend for microcontroller sensor streams (ESP32) with initial support for RAG-style natural language querying.  
- This repository provides:
+This API: 
+1. collects live data from remote, microcontroller-based environmental sensors and stores to a cloud-hosted PostgreSQL database 
+2. provides quantitative time series aggregation and analysis based on SQL queries
+3. creates a source material database for LLM chat queries from periodic data snapshots and uploaded PDFs and web links
+4. combines numeric data calculations and semantic retrieval in summarizing current conditions and responding to chat queries
 
-* a FastAPI server for ingesting and querying sensor data
+### Hardware
+The MVP prototype uses an Espressif ESP32-S3-DevKitC-1 microcontroller with an AM2320 Digital Temperature & Humidity Sensor (I2C interface). 
 
-* tools for semantic indexing and retrieval via LLM agent
+### Database 
+The PostgreSQL database is hosted on a Supabase free tier plan with the `pgvector` extension that enables vector storage and similarity search. 
 
-* a planned UI component (Next.js frontend integration) for data visualization and interaction
+### Backend Framework
+The backend API uses the Python FastAPI framework, hosted in a Google Cloud Run serverless container on a free tier plan.
 
-This project is evolving toward a production-ready sensor data platform with LLM chat interaction and analytics.
+### React UI
+The frontend (separate repo - `esp32_ui`) uses the Next.js server-side TypeScript-React framework, hosted on a Vercel free tier plan at https://esp32ui.vercel.app with Material UI design system and components from Devias Material Kit Pro. 
 
----
+### LLM Server
+Vector embedding, RAG retrieval, and LLM chat run on a local machine with Ollama. I am testing a variety of free open-weight LLMs running on Ollama, including gemma2 (Google), llama3 (Meta), gpt-oss (OpenAI), and qwen2.5 (Alibaba). For text embedding, I am testing the bge-m3 and nomic-embed-text models. 
 
-## **Overview**
+### Agent Development Frameworks
+The LLM chat uses a multi-agent framework with Planning, Retrieval, and Execution personas.
 
-The `esp32_api` project is designed to collect, store, and query time-series sensor data from ESP32 microcontrollers. It also integrates an agentic AI framework that allows users to ask open-ended questions about trends and anomalies in the data, experimenting with both Retrieval Augmented Generation (RAG) and natural language-to-SQL (NLSQL) strategies.
+1. **Planning**
+   - interpret the user question
+   - infer intent, metric, and time range
+   - choose deterministic SQL retrieval, vector retrieval, or a hybrid path
+2. **Retrieval**
+   - fetch raw readings, aggregated readings, snapshots, or literature/doc chunks
+   - combine structured and unstructured context for grounded answers
+3. **UI Execution**
+   - surface answers, charts, citations, and next actions in the separate `esp32_ui` frontend
+   - keep the backend focused on APIs, grounding, and orchestration rather than presentation
 
-Key aspects of the stack include:
+I am currently testing three open source agent development frameworks:
 
-* FastAPI backend with REST endpoints (`/ingest`, `/timeseries`)
+#### **LangChain** - Python
+* langchain-ollama integration 
+* langchain-text-splitters - packages for splitting up PDFs and websites as embeddable chunks of text with metadata
 
-* PostgreSQL database for sensor storage and snapshots
+#### **LlamaIndex** - Python
+* llama-index-llms-ollama integration
+* SentenceSplitter, SimpleWebPageReader, SimpleDirectoryReader split up PDFs and websites
+* SQLAutoVectorQueryEngine integrates SQL queries with RAG retrieval
 
-* Vector embedding and semantic retrieval endpoints (`/rag/query`, `/rag/index`, `/rag/ingest_docs`)
+#### **Vercel AI SDK** - TypeScript
+* (details to come)
 
-* Planned integration with a React/Next.js frontend for visualization and agent interaction
 
----
-
-## **Project Structure**
+## Project Structure
 
 `esp32_api/`  
-`├── server/                  # Backend service (FastAPI)`  
-`│   ├── app/                # Core application modules`  
-`│   ├── rag/                # RAG & LLM logic`  
-`│   └── main.py             # Data ingestion & status`  
-`├── device/                  # MicroPython scripts for ESP32`  
-`├── ui/                      # Placeholder for future frontend`  
-`├── docs/                    # Project documentation`  
-`├── .env.example             # Example environment vars`  
-`└── README.md                # This file`
+`├── server/                       # Server root`  
+`│   ├── app/                      # FastAPI application package`  
+`│   │   ├── api/                  # HTTP routes (ingest, timeseries, weather, rag)`  
+`│   │   ├── db/                   # Supabase/Postgres query helpers`  
+`│   │   ├── rag/                  # Agentic planning + retrieval + indexing`  
+`│   │   ├── scripts/              # Background loop(s)`  
+`│   │   └── main.py               # FastAPI entry point`  
+`├── device/                       # MicroPython scripts for ESP32-S3-DevKitC-1`  
+`├── docs/                         # Project documentation and architecture notes`  
+`├── .env.example                  # Example environment vars`  
+`├── requirements.txt              # Python dependencies`  
+`└── README.md                     # This file`
 
 
 ---
 
-## **API Endpoints**
+## API Endpoints
 
-### **Ingestion**
+### Ingestion
 
 `POST /ingest`  
- Ingests sensor payloads from ESP32 devices. 
+Ingests sensor payloads from devices.
 
-### **Time-Series Queries**
+### Health and Status
+
+`GET /ping`  
+Basic health check for API and backend service wiring.
+
+`GET /latest`  
+Returns the latest ingested reading when authorized.
+
+### Time-Series Queries
 
 `GET /timeseries`  
-Returns filtered time-series data based on query parameters (`sensor`, `from`, `to`, `avg`, etc.).
+Returns filtered time-series data based on query parameters such as `table`, `start_ts`, `end_ts`, `device_id`, `bucket`, and `aggregate_mode`.
 
-### **RAG & Semantic Endpoints**
+`GET /timeseries/summary`  
+Returns summary statistics for the raw readings table over an optional time range and device filter.
 
-* `POST /rag/query` — Chatbot that answers questions by generating SQL queries for the data and searching contextual documents.
+### Weather Data Enrichment
 
-* `POST /rag/index` — Batch embedding of time-series snapshots into vector store so LLM can answer data questions without SQL.
+`GET /weather/hourly`  
+Fetches hourly weather data from NOAA or Open-Meteo for comparison with sensor readings.
 
-* `POST /rag/ingest_docs` — Splits up PDFs and web pages into small, overlapping text chunks and embeds them in a vector DB.
+### RAG & Semantic Endpoints
 
-*(Detailed request/response schemas to be documented in `/docs/endpoints/*.md`.)*
+* `GET /rag/query` and `POST /rag/query` — answer natural-language questions using planning plus hybrid retrieval over structured sensor data and indexed documents
+* `POST /rag/index` — batch-embed recent time-series snapshots into the vector store
+* `POST /rag/rebuild` — rebuild snapshot indexing from the full history
+* `POST /rag/ingest_docs` — split PDFs and web pages into chunks and embed them in the document vector store
 
----
 
-## **Architecture**
+## Installation
 
-The system is composed of the following high-level components:
-
-`ESP32 Microcontroller`  
-      `↓ (posts data live via HTTP)`  
-`FastAPI Backend ── PostgreSQL ── Snapshots & Raw Data`  
-      `├─ /ingest, /timeseries`  
-      `└─ /rag/index, /rag/query, /rag/ingest_docs`  
-           `├─ SQL + Time-Series Logic`  
-           `└─ RAG / Embeddings`  
-`Front-end (Next.js / React / TypeScript) — visualization & agent interaction`
-
-The planned frontend may integrate the Vercel/Next AI SDK, which would move the /rag endpoints to Front-end.
-
----
-
-## **Installation**
-
-### **Prerequisites**
+### Prerequisites
 
 * **Python 3.11+**
 
 * **PostgreSQL** instance with credentials available (e.g. Supabase)
 
-* `pgvector` extension installed in PostgreSQL for vector embeddings (e.g. in Supabase, install `vector` under Database > Extensions)
+* `pgvector` extension installed in PostgreSQL for vector embeddings (in Supabase UI, install `vector` under Database > Extensions)
 
-### **Local Setup**
+### Local Setup
 
 Clone the repository and install dependencies:
 
 `git clone https://github.com/postoccupancy/esp32_api.git`  
 `cd esp32_api`  
-`pip install -r server/requirements.txt`
+`pip install -r requirements.txt`
 
 Set up environment variables (see **Configuration** below), then start the API:
 
-`uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload`
+`cd server`
+`uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
 
----
 
 
-## **Configuration**
+## Configuration
 
 Environment variables are used to control database connections. Copy `.env.example` to `.env` and fill in the required values.
 
 
----
 
-
-## **Documentation Structure**
+## Documentation Structure
 
 This repository follows a structured documentation layout inspired by best practices. The primary documentation is housed under the `docs/` folder. Key sections include:
 
-**Notes & Tutorials**
+**Technical Notes**
 
 * [`docs/2025-12-17-open-source-agent-stack.md`](/docs/2025-12-17-open-source-agent-stack.md) — Mapping out the open source agent development toolkit. 
-
-* [`docs/2026-01-27-rag-setup-and-next-steps.md`](/docs/2026-01-27-rag-setup-and-next-steps) — Discussion of how the RAG endpoints work, and how I plan to use them in an AI-enhanced data visualization interface. 
-
-* *(Future)* additional notes covering architectural decisions and integrations.
+* [`docs/2026-01-27-rag-setup-and-next-steps.md`](/workspaces/esp32_api/docs/2026-01-27-rag-setup-and-next-steps.md) — Discussion of how the RAG endpoints work, and how I plan to use them in the visualization interface.
+* [`docs/architecture.md`](/workspaces/esp32_api/docs/architecture.md) — Current architecture with explicit Planning, Retrieval, and UI Execution layers.
 
 
----
 
-## **Contributing**
+## Contributing
 
 Contributions are welcome\! For structured guidelines, see the `CONTRIBUTING.md` once created. For now:
 
@@ -146,13 +160,12 @@ Contributions are welcome\! For structured guidelines, see the `CONTRIBUTING.md`
 
 ---
 
-## **License**
+## License
 
 This project is open source and released under the BSD-3 Clause License.
 
 ---
 
-## **What’s Next / Roadmap**
+## What’s Next / Roadmap
 
-More documentation planned...
-
+Details to come...

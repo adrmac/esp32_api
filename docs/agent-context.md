@@ -187,3 +187,14 @@ Run Pylance/VS Code diagnostics refresh and confirm the previous `QueryNoTemplat
 - Next step: Share the detailed day-by-day plan with file targets and expected interview talking points.
 - Blockers/risks: Time is limited, so the plan should prioritize defensible improvements over broad refactors or speculative framework churn.
 - Branch and latest commit hash: Branch/hash not checked in this pass.
+
+## Milestone update: README and architecture reframed around real UI split
+- Current objective: Align `esp32_api` docs with the actual codebase and interview framing.
+- What changed:
+  - Updated `README.md` to reflect the real backend layout under `server/app/*`, corrected install/run commands, expanded endpoint coverage, and explicitly framed the backend around Planning -> Retrieval -> UI Execution.
+  - Documented that `ui/` in this repo is only a placeholder scaffold and that the real UI execution layer is the separate `esp32_ui` project deployed at `https://esp32ui.vercel.app`.
+  - Added `docs/architecture.md` with a system diagram, repo mapping, cross-stack translation notes, and enterprise positioning.
+  - Captured the rationale that backend structure evolved in response to frontend-driven performance and API needs.
+- Next step: Review the new docs for wording accuracy, then move to tests and security hardening.
+- Blockers/risks: README now references the external `esp32_ui` deployment by convention; if the deployment URL or repo boundaries change later, docs should be updated to match.
+- Branch and latest commit hash: `apr2026-sprint` @ `d0dc279`.
