@@ -25,7 +25,7 @@ Separate from the RAG vector store, I am archiving the snapshots as non-embedded
 
 
 `/rag/ingest_docs` 
-This third endpoint is for building a literature reference vector store based on the PDF documents saved in `/rag/docs/pdfs` and web pages in `/rag/docs/urls`.  For this I used LlamaIndex to compare against LangChain, which I used for `/rag/index`. Here, `pgvector` looks like this: 
+This third endpoint is for building a literature reference vector store based on the PDF documents saved in `/retrieval/corpus/pdfs` and web pages in `/retrieval/corpus/urls`.  For this I used LlamaIndex to compare against LangChain, which I used for `/rag/index`. Here, `pgvector` looks like this: 
 ```
 from llama_index.core import VectorStoreIndex, StorageContext
 from llama_index.vector_stores.postgres import PGVectorStore 

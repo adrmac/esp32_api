@@ -208,3 +208,150 @@ Run Pylance/VS Code diagnostics refresh and confirm the previous `QueryNoTemplat
 - Next step: Push `main` when ready, then continue with the next documentation or testing task.
 - Blockers/risks: None in the git state currently; the main remaining decision is when to push `main`.
 - Branch and latest commit hash: `main` @ `0382172`.
+
+## Milestone update: planning-retrieval-execution refactor scaffolding
+- Current objective: Move the backend toward an explicit Planning -> Retrieval -> Execution architecture while preserving the current FastAPI app and existing LangChain/LlamaIndex integrations.
+- What changed:
+  - Completed the package split so current runtime code now lives under:
+    - `server/app/planning/*` for query planning and agent workflow entry points
+    - `server/app/retrieval/vector/*` for snapshot/doc/vector retrieval and indexing
+    - `server/app/execution/answering/*` for answer synthesis
+    - `server/app/frameworks/*` for LangChain and LlamaIndex runtime adapters
+    - `server/app/providers/ollama/*` for provider-specific Ollama configuration
+  - Added package roots for `frameworks` and `providers` so those boundaries are explicit importable modules rather than implicit namespace folders.
+  - Fixed the last stale route import in `server/app/api/rag_router.py` so `/rag/ingest_docs` now imports from `app.retrieval.vector.ingest_docs`.
+  - Updated `README.md` and `docs/architecture.md` to describe the new structure, clarify that `sql/` remains the shared low-level data-access layer, and keep the real UI execution boundary in the separate `esp32_ui` repo.
+  - Verified import sanity from the active server venv for:
+    - `app.main`
+    - `app.api.rag_router`
+    - `app.execution.answering.rag_query`
+    - `app.frameworks.*`
+    - `app.planning.*`
+    - `app.providers.*`
+    - `app.retrieval.vector.*`
+- Next step: Continue the cleanup by deciding which future provider/framework slots should be documented only versus scaffolded in code, then add tests around the new planning and retrieval boundaries.
+- Blockers/risks:
+  - Corpus assets still live under `server/app/rag/docs/*`; that is intentional for now, but should eventually move to a less legacy-looking location if the ingestion pipeline settles.
+  - There are still many uncommitted refactor changes on branch `cleanup`, so the next pass should be careful and incremental.
+- Branch and latest commit hash: `cleanup` @ `d746247406e4370355e23a4a263d6dd0642ec6cb` (working tree dirty).
+
+## Milestone update: structured retrieval moved under retrieval/
+- Current objective: Finish the structured half of the retrieval architecture so timeseries, weather, and SQL-backed access live under `retrieval/` instead of being split across `api/` and `sql/`.
+- What changed:
+  - Added `server/app/retrieval/structured/sql_queries.py` and moved the live Supabase/psycopg data-access code there.
+  - Added `server/app/retrieval/structured/timeseries.py` so `/timeseries` and `/timeseries/summary` route handlers are now thin HTTP wrappers over retrieval functions.
+  - Added `server/app/retrieval/structured/weather.py` so `/weather/hourly` route logic now delegates to a structured retrieval layer while keeping provider-specific transport code in `server/app/weather/*`.
+  - Added `server/app/retrieval/registry.py` to expose the current structured retrieval entry points from one place.
+  - Added `server/app/retrieval/state/app_state.py` as a reserved state-retrieval boundary for future UI/system-state-aware planning, without forcing that feature into the current runtime yet.
+  - Updated `server/app/main.py`, `server/app/api/timeseries_router.py`, `server/app/api/weather_router.py`, `README.md`, and `docs/architecture.md` to use and describe the new `retrieval/structured/*` layout.
+  - Removed the old `server/app/sql/*` package after updating imports, per the repo preference to avoid compatibility wrappers around renamed/moved modules.
+  - Verified import sanity from the active server venv for:
+    - `app.main`
+    - `app.api.timeseries_router`
+    - `app.api.weather_router`
+    - `app.retrieval.structured.sql_queries`
+    - `app.retrieval.structured.timeseries`
+    - `app.retrieval.structured.weather`
+    - `app.retrieval.registry`
+    - `app.retrieval.state.app_state`
+- Next step: Decide whether to move corpus assets from `server/app/rag/docs/*` into a more neutral retrieval/corpus location, then add tests around the new structured retrieval functions rather than only around the routers.
+- Blockers/risks:
+  - `server/app/weather/*` is still intentionally separate because it currently behaves as a provider-adapter layer, but that may need clearer naming if more external providers are added.
+  - The retrieval state boundary is intentionally minimal right now; it exists to match the target architecture, not because the backend currently persists frontend filter state.
+- Branch and latest commit hash: `cleanup` @ `d746247406e4370355e23a4a263d6dd0642ec6cb` (working tree dirty).
+
+## Milestone update: external adapters and corpus paths cleaned up
+- Current objective: Remove the last legacy folder names so the tree reads like a reusable architecture rather than a weather-only or old-RAG-specific prototype.
+- What changed:
+  - Renamed `server/app/weather/*` to `server/app/external/*` so external API adapters are no longer weather-specific by name.
+  - Moved the ingestion corpus from `server/app/rag/docs/*` to `server/app/retrieval/corpus/*`.
+  - Updated live imports so:
+    - `retrieval/structured/weather.py` now imports from `app.external.*`
+    - `retrieval/vector/ingest_docs.py` now imports URLs and PDFs from `app.retrieval.corpus.*`
+  - Added `server/app/retrieval/corpus/__init__.py` and updated docs (`README.md`, `docs/architecture.md`, `docs/2026-01-27-rag-setup-and-next-steps.md`) to reflect `external/` and `retrieval/corpus/`.
+  - Removed obsolete directories `server/app/rag`, `server/app/scripts`, and `server/app/sql` after the code and assets were moved.
+  - Verified import sanity for:
+    - `app.main`
+    - `app.api.weather_router`
+    - `app.retrieval.structured.weather`
+    - `app.retrieval.corpus.urls`
+    - `app.external.weather_hourly`
+    - `app.external.weather_open_meteo`
+- Next step: Add tests around the new retrieval boundaries, and consider making `retrieval/vector/ingest_docs.py` load web content lazily instead of doing network work at import time.
+- Blockers/risks:
+  - `ingest_docs.py` still performs eager web-document loading at import time, which can hang or fail in restricted environments. The architecture is cleaner, but that module still needs a runtime-behavior cleanup.
+  - Historical notes earlier in this file still mention the pre-rename `weather/` and `rag/docs/` paths; those are retained as history, not current architecture.
+- Branch and latest commit hash: `cleanup` @ `d746247406e4370355e23a4a263d6dd0642ec6cb` (working tree dirty).
+
+## Milestone update: ingest_docs made lazy-import safe
+- Current objective: Remove eager network and file-loading work from `retrieval/vector/ingest_docs.py` so imports stay cheap and smoke tests do not hang on external fetches.
+- What changed:
+  - Reworked `server/app/retrieval/vector/ingest_docs.py` so PDF loading and web loading now happen through explicit helper functions:
+    - `load_pdf_docs()`
+    - `load_web_docs()`
+    - `build_raw_docs()`
+  - Removed module-level initialization of `pdf_docs`, `web_docs`, and `raw_docs`.
+  - Updated `ingest()` to call `build_raw_docs()` at runtime instead of relying on import-time side effects.
+  - Verified that `app.retrieval.vector.ingest_docs` now imports cleanly without performing web requests, and that the new helper functions are present.
+- Next step: Add tests around the retrieval helpers and consider whether `load_web_docs()` should eventually support dependency injection or mocking hooks for easier offline testing.
+- Blockers/risks:
+  - `ingest()` still performs real network fetches when called, which is expected. The change here only removes eager side effects at import time.
+- Branch and latest commit hash: `cleanup` @ `d746247406e4370355e23a4a263d6dd0642ec6cb` (working tree dirty).
+
+## Milestone update: retrieval-focused pytest coverage added
+- Current objective: Add meaningful automated tests around the new retrieval architecture so interview and production-readiness discussions are backed by real coverage.
+- What changed:
+  - Added `tests/conftest.py` to put `server/` on the pytest import path.
+  - Added `tests/test_retrieval_timeseries.py` covering:
+    - invalid table rejection
+    - snapshot bucketing rejection
+    - aggregated retrieval dispatch
+    - raw row retrieval dispatch
+    - summary rejection for snapshots
+    - summary happy path
+  - Added `tests/test_retrieval_weather.py` covering:
+    - Open-Meteo dispatch
+    - NOAA/default dispatch
+  - Added `tests/test_ingest_docs.py` covering:
+    - `build_raw_docs()` combination and metadata normalization
+    - `clean_text()` normalization
+    - `load_web_docs()` fallback path using mocked `requests`
+  - Verified with:
+    - `cd /workspaces/esp32_api/server && . .venv/bin/activate && python -m pytest /workspaces/esp32_api/tests/test_retrieval_timeseries.py /workspaces/esp32_api/tests/test_retrieval_weather.py /workspaces/esp32_api/tests/test_ingest_docs.py`
+    - Result: `11 passed`
+- Next step: Add API-layer tests for auth/header behavior and, if useful, unit tests around `planning/core/query_planner.py`.
+- Blockers/risks:
+  - Test run emitted third-party warnings from `pyiceberg` plus a pytest cache warning because this environment cannot write `.pytest_cache`; neither affected pass/fail.
+- Branch and latest commit hash: `cleanup` @ `d746247406e4370355e23a4a263d6dd0642ec6cb` (working tree dirty).
+
+## Milestone update: auth and planning tests added
+- Current objective: Extend the new test coverage into security-sensitive auth helpers and the planning layer so the Planning -> Retrieval -> Execution story has automated checks at more than one boundary.
+- What changed:
+  - Added `tests/test_api_auth.py` covering:
+    - `require_status_token`
+    - `require_ingest_token`
+    - `require_rag_token`
+    for both rejection and acceptance paths.
+  - Added `tests/test_query_planner.py` covering:
+    - valid JSON planner output parsing
+    - fallback behavior when the planner returns invalid JSON
+    - absolute time-range resolution
+    - day-part relative time-range resolution
+  - Verified the full current test set with:
+    - `cd /workspaces/esp32_api/server && . .venv/bin/activate && python -m pytest /workspaces/esp32_api/tests`
+    - Result: `21 passed`
+- Next step: If deeper API coverage is still desired, investigate why `fastapi.testclient.TestClient` requests with header-based auth dependencies hang in this environment before investing more time in route-level tests.
+- Blockers/risks:
+  - I initially attempted route-level auth tests with `TestClient`, but even a minimal FastAPI app using the auth dependency hung on requests in this environment. To keep momentum, auth coverage currently targets the dependency layer directly rather than full HTTP request/response tests.
+  - Test run still emits third-party `pyiceberg` deprecation warnings plus a pytest cache warning due read-only cache writes; neither affected pass/fail.
+- Branch and latest commit hash: `cleanup` @ `d746247406e4370355e23a4a263d6dd0642ec6cb` (working tree dirty).
+
+## Milestone update: README testing section added
+- Current objective: Make the new automated coverage visible in repo-facing documentation so reviewers can understand what is tested and how to run it.
+- What changed:
+  - Added a `Testing` section to `README.md`.
+  - Documented the current coverage areas across auth, planning, structured retrieval, and ingestion helpers.
+  - Added the exact pytest command for the server venv and recorded the current result as `21 passed`.
+- Next step: Commit the cleanup branch in logical chunks and merge it back to `main`.
+- Blockers/risks: README test count is a snapshot of the current branch; if tests change later, the count should be updated with them.
+- Branch and latest commit hash: `cleanup` @ `d746247406e4370355e23a4a263d6dd0642ec6cb` (working tree dirty).

@@ -56,9 +56,13 @@ I am currently testing three open source agent development frameworks:
 `├── server/                       # Server root`  
 `│   ├── app/                      # FastAPI application package`  
 `│   │   ├── api/                  # HTTP routes (ingest, timeseries, weather, rag)`  
-`│   │   ├── db/                   # Supabase/Postgres query helpers`  
-`│   │   ├── rag/                  # Agentic planning + retrieval + indexing`  
-`│   │   ├── scripts/              # Background loop(s)`  
+`│   │   ├── planning/             # Query planning and agent workflows`  
+`│   │   ├── retrieval/            # Structured, vector, and state retrieval flows`  
+`│   │   ├── execution/            # Answer synthesis and response shaping`  
+`│   │   ├── frameworks/           # LangChain and LlamaIndex runtime adapters`  
+`│   │   ├── providers/            # Provider-specific config (currently Ollama)`  
+`│   │   ├── external/             # External API provider adapters`  
+`│   │   ├── retrieval/corpus/     # Reference corpus assets used for ingestion`  
 `│   │   └── main.py               # FastAPI entry point`  
 `├── device/                       # MicroPython scripts for ESP32-S3-DevKitC-1`  
 `├── docs/                         # Project documentation and architecture notes`  
@@ -125,7 +129,7 @@ Clone the repository and install dependencies:
 
 Set up environment variables (see **Configuration** below), then start the API:
 
-`cd server`
+`cd server`  
 `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
 
 
@@ -169,3 +173,27 @@ This project is open source and released under the BSD-3 Clause License.
 ## What’s Next / Roadmap
 
 Details to come...
+
+---
+
+## Testing
+
+The current automated tests focus on the new Planning -> Retrieval -> Execution architecture boundaries rather than only route wiring.
+
+Covered areas:
+
+* auth dependency checks for `STATUS_TOKEN`, `INGEST_TOKEN`, and `RAG_TOKEN`
+* planning logic in `planning/core/query_planner.py`
+* structured retrieval in `retrieval/structured/timeseries.py`
+* structured retrieval dispatch in `retrieval/structured/weather.py`
+* vector-ingestion helpers in `retrieval/vector/ingest_docs.py`
+
+Run the test suite from the server virtual environment:
+
+```bash
+cd server
+. .venv/bin/activate
+python -m pytest /workspaces/esp32_api/tests
+```
+
+Current result on this branch: `21 passed`

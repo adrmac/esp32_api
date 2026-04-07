@@ -50,7 +50,8 @@ Responsibilities:
 
 Primary file:
 
-* [`server/app/rag/rag_query.py`](/workspaces/esp32_api/server/app/rag/rag_query.py)
+* [`query_planner.py`](/workspaces/esp32_api/server/app/planning/core/query_planner.py)
+* [`agent_workflow.py`](/workspaces/esp32_api/server/app/planning/agents/agent_workflow.py)
 
 Programming style:
 
@@ -76,10 +77,12 @@ Semantic retrieval responsibilities:
 
 Primary files:
 
-* [`server/app/db/supabase_queries.py`](/workspaces/esp32_api/server/app/db/supabase_queries.py)
-* [`server/app/rag/rag_snapshots.py`](/workspaces/esp32_api/server/app/rag/rag_snapshots.py)
-* [`server/app/rag/rag_index.py`](/workspaces/esp32_api/server/app/rag/rag_index.py)
-* [`server/app/rag/ingest_docs.py`](/workspaces/esp32_api/server/app/rag/ingest_docs.py)
+* [`sql_queries.py`](/workspaces/esp32_api/server/app/retrieval/structured/sql_queries.py)
+* [`timeseries.py`](/workspaces/esp32_api/server/app/retrieval/structured/timeseries.py)
+* [`weather.py`](/workspaces/esp32_api/server/app/retrieval/structured/weather.py)
+* [`rag_snapshots.py`](/workspaces/esp32_api/server/app/retrieval/vector/rag_snapshots.py)
+* [`rag_index.py`](/workspaces/esp32_api/server/app/retrieval/vector/rag_index.py)
+* [`ingest_docs.py`](/workspaces/esp32_api/server/app/retrieval/vector/ingest_docs.py)
 
 Programming style:
 
@@ -102,9 +105,35 @@ Primary UI target:
 
 * `esp32_ui` at `https://esp32ui.vercel.app`
 
+Primary backend execution file:
+
+* [`rag_query.py`](/workspaces/esp32_api/server/app/execution/answering/rag_query.py)
+
 Note:
 
-* The `ui/` directory in this repo is a placeholder scaffold from `create-next-app`; it is not the real application shell.
+* The real UI execution layer lives in the separate `esp32_ui` repo. This backend keeps execution logic to API-side answer shaping, while UI interaction and streaming belong in the frontend shell.
+
+## Current Package Layout
+
+```text
+server/app/
+  api/                FastAPI routes and auth gates
+  planning/           Query planning and multi-agent workflow entry points
+  retrieval/          Structured, vector, and state retrieval pipelines
+  execution/          Answer synthesis and response shaping
+  frameworks/         LangChain and LlamaIndex runtime adapters
+  providers/          Provider-specific config and client wiring
+  external/           External API provider adapters
+  retrieval/corpus/   Corpus assets still used by document ingestion
+```
+
+Structured retrieval now lives under:
+
+* `retrieval/structured/sql_queries.py` for low-level SQL and Supabase access
+* `retrieval/structured/timeseries.py` for app-level time-series retrieval workflows
+* `retrieval/structured/weather.py` for app-level weather retrieval workflows
+
+Provider adapters still live separately under `external/` because they are integration-specific transport code rather than retrieval orchestration. Weather is simply the first such integration.
 
 ## Why the Backend Looks This Way
 
@@ -141,11 +170,18 @@ Current rough division:
 * LlamaIndex:
   higher-level query engines for SQL + retrieval workflows
 
+Current provider boundary:
+
+* [`providers/ollama`](/workspaces/esp32_api/server/app/providers/ollama) owns Ollama-specific config like host, chat model, and embedding model.
+* [`frameworks/langchain`](/workspaces/esp32_api/server/app/frameworks/langchain) owns LangChain-specific runtime objects.
+* [`frameworks/llamaindex`](/workspaces/esp32_api/server/app/frameworks/llamaindex) owns LlamaIndex-specific runtime objects.
+
 Target direction:
 
 * make Planning a clearer service boundary
 * make Retrieval a clearer service boundary
 * keep provider-specific model access behind a separate provider layer
+* add future providers such as OpenAI, Anthropic, and Gemini under `providers/` without changing the Planning / Retrieval / Execution layout
 
 ## Enterprise Positioning
 
