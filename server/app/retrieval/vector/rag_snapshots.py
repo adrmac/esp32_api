@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, List, Optional, Dict, Any
-
-import psycopg  # psycopg v3, not psycopg2
-from psycopg import sql
-
-from langchain_core.documents import Document
+from typing import Optional
 
 import os
+import psycopg
+from langchain_core.documents import Document
+from psycopg import sql
+
 DEVICE_ID = os.getenv("DEVICE_ID", "")
 RAW_DATA_TABLE = os.getenv("RAW_DATA_TABLE", "")
 DATABASE_URL = os.getenv("SUPABASE_DB_URL_IPV4", "")
@@ -20,6 +19,7 @@ class SnapshotWindow:
     device_id: str
     window_start: datetime
     window_end: datetime
+
 
 @dataclass(frozen=True)
 class HourlySnapshot:
@@ -50,24 +50,27 @@ def _get_earliest_timestamp(
     connection: psycopg.Connection,
     table_name: str = RAW_DATA_TABLE,
     timestamp_column_name: str = "ts",
-    device_id: Optional[str] = None,        
+    device_id: Optional[str] = None,
 ) -> Optional[datetime]:
-    # Strict psycopg/Pylance typing requires sql.SQL objects for dynamic table names, can't do simple f-strings here
     if device_id is None:
-        query = sql.SQL("""
-            select min({timestamp_column_name}) 
+        query = sql.SQL(
+            """
+            select min({timestamp_column_name})
             from {table_name};
-        """).format(
+        """
+        ).format(
             timestamp_column_name=sql.Identifier(timestamp_column_name),
             table_name=sql.Identifier(table_name),
         )
         params = None
     else:
-        query = sql.SQL("""
+        query = sql.SQL(
+            """
             select min({timestamp_column_name})
             from {table_name}
             where device_id = %(device_id)s;
-        """).format(
+        """
+        ).format(
             timestamp_column_name=sql.Identifier(timestamp_column_name),
             table_name=sql.Identifier(table_name),
         )
@@ -80,31 +83,25 @@ def _get_earliest_timestamp(
 
     if earliest is None:
         return None
-    
-    # Normalize to UTC timezone-aware datetime
     if earliest.tzinfo is None:
         earliest = earliest.replace(tzinfo=timezone.utc)
     else:
         earliest = earliest.astimezone(timezone.utc)
-
-    return earliest        
-
+    return earliest
 
 
 def _define_hour_windows_from_start(
-        device_id: str,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-) -> List[SnapshotWindow]:
-
-    window_start: Optional[datetime] = None
+    device_id: str,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+) -> list[SnapshotWindow]:
     if start_time:
         window_start = _floor_to_hour(start_time)
     else:
         connection = psycopg.connect(DATABASE_URL)
         earliest = _get_earliest_timestamp(
             connection=connection,
-            timestamp_column_name="created_at"
+            timestamp_column_name="created_at",
         )
         if earliest is None:
             connection.close()
@@ -113,19 +110,16 @@ def _define_hour_windows_from_start(
         connection.close()
 
     window_end = _floor_to_hour(end_time or _utc_now())
-
-    print(f"Defining hour windows from {window_start} to {window_end}")
-
-    windows: List[SnapshotWindow] = []
+    windows: list[SnapshotWindow] = []
     current_dt = window_start
     while current_dt < window_end:
-        snapshot = SnapshotWindow(
+        windows.append(
+            SnapshotWindow(
                 device_id=device_id,
                 window_start=current_dt,
                 window_end=current_dt + timedelta(hours=1),
             )
-        windows.append(snapshot)
-        print(f"{snapshot.device_id}: {snapshot.window_start.isoformat()} to {snapshot.window_end.isoformat()}")
+        )
         current_dt += timedelta(hours=1)
 
     return windows
@@ -135,30 +129,26 @@ def _define_hour_windows_from_end(
     device_id: str,
     lookback_hours: int,
     end_time: Optional[datetime] = None,
-) -> List[SnapshotWindow]:
+) -> list[SnapshotWindow]:
     window_end = _floor_to_hour(end_time or _utc_now())
     window_start = window_end - timedelta(hours=lookback_hours)
 
     print(f"Defining hour windows looking back {lookback_hours} hours from {window_end}...")
 
-    windows: List[SnapshotWindow] = []
+    windows: list[SnapshotWindow] = []
     current_dt = window_start
     while current_dt < window_end:
         snapshot = SnapshotWindow(
             device_id=device_id,
             window_start=current_dt,
             window_end=current_dt + timedelta(hours=1),
-            )
+        )
         windows.append(snapshot)
-        print(f"{snapshot.device_id}: {snapshot.window_start.isoformat()} to {snapshot.window_end.isoformat()}")
+        print(
+            f"{snapshot.device_id}: {snapshot.window_start.isoformat()} to {snapshot.window_end.isoformat()}"
+        )
         current_dt += timedelta(hours=1)
-    """
-    Returns a list of windows:
-      [{"device_id": ..., "window_start": ..., "window_end": ...}, ...]
-    """
     return windows
-
-
 
 
 def _fetch_hour_stats(
@@ -169,11 +159,8 @@ def _fetch_hour_stats(
     temperature_f_column_name: str = "temp_f",
     humidity_column_name: str = "rh",
 ) -> Optional[HourlySnapshot]:
-    """
-    Returns None if no data in that hour window.
-    """
-    # Strict psycopg/Pylance typing requires sql.SQL objects for dynamic table names, can't do simple f-strings here
-    query = sql.SQL("""
+    query = sql.SQL(
+        """
         select
           count(*) as n,
           min({temperature_c_column_name}) as t_min_c,
@@ -189,7 +176,8 @@ def _fetch_hour_stats(
         where device_id = %(device_id)s
           and {timestamp_column_name} >= %(start)s
           and {timestamp_column_name} <  %(end)s;
-    """).format(
+    """
+    ).format(
         temperature_c_column_name=sql.Identifier(temperature_c_column_name),
         temperature_f_column_name=sql.Identifier(temperature_f_column_name),
         humidity_column_name=sql.Identifier(humidity_column_name),
@@ -197,8 +185,6 @@ def _fetch_hour_stats(
         timestamp_column_name=sql.Identifier(timestamp_column_name),
     )
 
-    # for psycopg v3, the %s placeholders won't work if you pass in the SnapshotWindow dataclass
-    # so we need to unpack it into a dict
     params = {
         "device_id": window.device_id,
         "start": window.window_start,
@@ -233,10 +219,7 @@ def _fetch_hour_stats(
     )
 
 
-def _format_snapshot_text(
-    window: SnapshotWindow,
-    stats: HourlySnapshot,
-) -> str:
+def _format_snapshot_text(window: SnapshotWindow, stats: HourlySnapshot) -> str:
     return (
         f"Hourly snapshot for device '{window.device_id}'\n"
         f"Window (UTC): {window.window_start.isoformat()} → {window.window_end.isoformat()}\n"
@@ -252,38 +235,26 @@ def _format_snapshot_text(
 def build_langchain_documents(
     lookback_hours: Optional[int] = None,
     end_time: Optional[datetime] = None,
-    start_time: Optional[datetime] = None,        
-) -> List[Document]:
-    """
-    Connects to Supabase Postgres, queries raw readings, and returns hourly Documents using all functions above.
-    This will be called in rag_index.py to index the hourly snapshots.
-    """
-
+    start_time: Optional[datetime] = None,
+) -> list[Document]:
     connection = psycopg.connect(DATABASE_URL)
-
-    documents: List[Document] = []
-
-    hours: List[SnapshotWindow] = []
+    documents: list[Document] = []
 
     if lookback_hours:
         hours = _define_hour_windows_from_end(
-            DEVICE_ID, 
-            lookback_hours=lookback_hours, 
-            end_time=end_time
+            DEVICE_ID,
+            lookback_hours=lookback_hours,
+            end_time=end_time,
         )
-    else:    
+    else:
         hours = _define_hour_windows_from_start(
             DEVICE_ID,
             start_time=start_time,
-            end_time=end_time
+            end_time=end_time,
         )
-
 
     try:
         for hour in hours:
-            window_start: datetime = hour.window_start
-            window_end: datetime = hour.window_end
-
             stats = _fetch_hour_stats(connection, hour)
             if stats is None:
                 continue
@@ -292,24 +263,18 @@ def build_langchain_documents(
 
             documents.append(
                 Document(
-                    page_content=snapshot_text, 
+                    page_content=snapshot_text,
                     metadata={
-                        "window_start": window_start.isoformat(), 
-                        "window_end": window_end.isoformat(),
+                        "window_start": hour.window_start.isoformat(),
+                        "window_end": hour.window_end.isoformat(),
                         "kind": "hourly_snapshot",
                         "device_id": DEVICE_ID,
                         "source": RAW_DATA_TABLE,
-                        "data_coverage": stats.n / 1800
-                       }
-                    ))
+                        "data_coverage": stats.n / 1800,
+                    },
+                )
+            )
     finally:
         connection.close()
 
     return documents
-
-
-
-if __name__ == "__main__":
-    documents = build_langchain_documents(lookback_hours=2)
-    for doc in documents:
-        print(doc.page_content)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 import json
 import math
@@ -28,7 +28,12 @@ def _parse_iso_ts(value: Optional[str]) -> Optional[datetime]:
 
 
 def _iso_utc(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        dt.astimezone(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -79,7 +84,11 @@ def fetch_nws_observations(
         pagination = payload.get("pagination")
         if isinstance(pagination, dict):
             next_url = pagination.get("next")
-        url = _build_url_with_limit(next_url, page_limit) if isinstance(next_url, str) else None
+        url = (
+            _build_url_with_limit(next_url, page_limit)
+            if isinstance(next_url, str)
+            else None
+        )
         pages += 1
 
     return features

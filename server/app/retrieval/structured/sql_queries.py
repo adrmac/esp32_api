@@ -14,6 +14,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANO
 SUPABASE_DB_URL_IPV4 = os.getenv("SUPABASE_DB_URL_IPV4", "")
 RAW_DATA_TABLE = os.getenv("RAW_DATA_TABLE", "readings")
 SNAPSHOT_DATA_TABLE = os.getenv("SNAPSHOT_DATA_TABLE", "snapshots")
+ALLOWED_TABLES = {RAW_DATA_TABLE, SNAPSHOT_DATA_TABLE}
 
 
 supabase = None
@@ -50,6 +51,9 @@ def get_supabase(
     offset: int = 0,
     order_desc: bool = True,
 ) -> list[dict[str, Any]]:
+    if table not in ALLOWED_TABLES:
+        print(f"[supabase] get_supabase rejected invalid table: {table!r}")
+        return []
     if supabase is None:
         return []
     try:
@@ -91,14 +95,13 @@ def get_supabase_aggregated(
     order_desc: bool = False,
     aggregate_mode: Literal["full", "lite"] = "full",
 ) -> list[dict[str, Any]]:
-    """Return bucketed sensor aggregates from the raw readings table.
-
-    This function currently supports the raw readings table shape (`ts`, `temp_c`,
-    `temp_f`, `rh`, `device_id`). It uses psycopg directly because Supabase's query
-    builder is awkward for grouped aggregations.
-    """
+    """Return bucketed sensor aggregates from the raw readings table."""
     if not SUPABASE_DB_URL_IPV4:
         print("[supabase] aggregate query skipped: SUPABASE_DB_URL_IPV4 is missing")
+        return []
+
+    if table not in ALLOWED_TABLES:
+        print(f"[supabase] get_supabase_aggregated rejected invalid table: {table!r}")
         return []
 
     if bucket_seconds < 1:
@@ -112,7 +115,6 @@ def get_supabase_aggregated(
     )
 
     if aggregate_mode == "lite":
-        # Strict psycopg/Pylance typing requires sql.SQL objects for dynamic table names, can't do simple f-strings here
         query = sql.SQL(
             """
             select
@@ -151,7 +153,6 @@ def get_supabase_aggregated(
             order_direction=order_direction,
         )
     else:
-        # Strict psycopg/Pylance typing requires sql.SQL objects for dynamic table names, can't do simple f-strings here
         query = sql.SQL(
             """
             select
@@ -248,13 +249,16 @@ def get_supabase_summary(
         print("[supabase] summary query skipped: SUPABASE_DB_URL_IPV4 is missing")
         return {}
 
+    if table not in ALLOWED_TABLES:
+        print(f"[supabase] get_supabase_summary rejected invalid table: {table!r}")
+        return {}
+
     where_clause, where_params = _build_timeseries_where_clause(
         device_id=device_id,
         start_ts=start_ts,
         end_ts=end_ts,
     )
 
-    # Strict psycopg/Pylance typing requires sql.SQL objects for dynamic table names, can't do simple f-strings here
     query = sql.SQL(
         """
         select
@@ -290,3 +294,4 @@ def get_supabase_summary(
     except Exception as exc:
         print("[supabase] get_supabase_summary error:", repr(exc))
         return {}
+

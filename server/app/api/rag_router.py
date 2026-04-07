@@ -1,13 +1,16 @@
 import os
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from datetime import datetime, timezone
 
-from app.rag.rag_query import llamaindex_answer_question
-from app.rag.rag_snapshots import build_langchain_documents
-from app.rag.rag_index import archive_documents_in_database, index_documents_in_vectorstore
+from app.execution.answering.rag_query import llamaindex_answer_question
+from app.providers.ollama.config import DEVICE_ID
+from app.retrieval.vector.rag_index import (
+    archive_documents_in_database,
+    index_documents_in_vectorstore,
+)
+from app.retrieval.vector.rag_snapshots import build_langchain_documents
 
-from fastapi import Header, HTTPException
+from app.api.auth import require_rag_token
 
 
 ### FastAPI authentication layer ###
@@ -17,13 +20,7 @@ from fastapi import Header, HTTPException
 # e.g. X-RAG-Token: a-long-secret-key
 # 4. if it doesn't match, return 401 Unauthorized
 
-RAG_TOKEN = os.getenv("RAG_TOKEN")
 SNAPSHOT_DATA_TABLE = os.getenv("SNAPSHOT_DATA_TABLE", "")
-
-# FastAPI will look for X-RAG-Token based on 'x_rag_token' parameter
-def require_rag_token(x_rag_token: str = Header(default="")):
-    if not RAG_TOKEN or x_rag_token != RAG_TOKEN:
-        raise HTTPException(status_code=401, detail="Unauthorized")
 
 ### To call these endpoints from terminal, use:
 # curl -X POST http://127.0.0.1:8000/rag/[endpoint] -H "X-RAG-Token: [token]"
@@ -35,15 +32,14 @@ class QueryReq(BaseModel):
     question: str
 
 DATABASE_URL = os.getenv("SUPABASE_DB_URL_IPV4", "")
-DEVICE_ID = os.getenv("DEVICE_ID")
 
 # this one is for browser use with a query param
-@router.get("/query")
+@router.get("/query", dependencies=[Depends(require_rag_token)])
 def rag_query_get(question: str = Query(...)):
     return llamaindex_answer_question(question)
 
 # proper post request with a header
-@router.post("/query")
+@router.post("/query", dependencies=[Depends(require_rag_token)])
 def rag_query(request: QueryReq):
     return llamaindex_answer_question(request.question)
 
@@ -67,6 +63,6 @@ def rag_index():
 
 @router.post("/ingest_docs", dependencies=[Depends(require_rag_token)])
 def rag_ingest_docs():
-    from app.rag.ingest_docs import ingest
+    from app.retrieval.vector.ingest_docs import ingest
     ingest()
     return {"ok": True, "message": "Ingestion complete."}

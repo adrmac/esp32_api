@@ -26,7 +26,12 @@ def _parse_iso_ts(value: Optional[str]) -> Optional[datetime]:
 
 
 def _iso_utc(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        dt.astimezone(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def _to_float(value: Any) -> Optional[float]:
