@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Callable
 from zoneinfo import ZoneInfo
 
 import dateparser
 
-from app.frameworks.langchain.runtime import get_llm
+from app.planning.models import QueryPlan
 
 TZ = ZoneInfo("America/Los_Angeles")
 
@@ -32,19 +32,13 @@ Rules:
 """
 
 
-def plan_query(question: str) -> dict[str, Any]:
-    llm = get_llm()
-    response = llm.invoke(
-        [
-            {"role": "system", "content": PLANNER_SYSTEM},
-            {"role": "user", "content": question},
-        ]
-    )
-    content = response.content
-    text = content if isinstance(content, str) else json.dumps(content)
-    text = text.strip()
+PlannerBackend = Callable[[str], str]
+
+
+def parse_planner_response(text: str) -> QueryPlan:
+    cleaned = text.strip()
     try:
-        return json.loads(text)
+        return json.loads(cleaned)
     except json.JSONDecodeError as exc:
         return {
             "intent": "summarize",
@@ -52,20 +46,37 @@ def plan_query(question: str) -> dict[str, Any]:
             "time": {"mode": "relative", "relative": {"unit": "hours", "value": 24}},
             "timezone": "America/Los_Angeles",
             "parse_error": str(exc),
-            "raw": text,
+            "raw": cleaned,
         }
 
 
-def resolve_time_range(plan: dict[str, Any]) -> tuple[datetime, datetime]:
+def plan_query(question: str, planner_backend: PlannerBackend | None = None) -> QueryPlan:
+    if planner_backend is None:
+        from app.frameworks.langchain.planning import plan_with_langchain
+
+        planner_backend = plan_with_langchain
+
+    return parse_planner_response(planner_backend(question))
+
+
+def resolve_time_range(plan: QueryPlan) -> tuple[datetime, datetime]:
     now_local = datetime.now(TZ)
     time_obj = plan.get("time", {})
     mode = time_obj.get("mode", "relative")
 
     if mode == "absolute":
-        start = datetime.fromisoformat(time_obj["absolute"]["start"]).replace(
+        absolute = time_obj.get("absolute")
+        if not absolute or "start" not in absolute or "end" not in absolute:
+            start_local = now_local - timedelta(hours=24)
+            end_local = now_local
+            return start_local.astimezone(timezone.utc), end_local.astimezone(
+                timezone.utc
+            )
+
+        start = datetime.fromisoformat(absolute["start"]).replace(
             tzinfo=TZ
         )
-        end = datetime.fromisoformat(time_obj["absolute"]["end"]).replace(tzinfo=TZ)
+        end = datetime.fromisoformat(absolute["end"]).replace(tzinfo=TZ)
         return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
 
     relative = time_obj.get("relative", {})

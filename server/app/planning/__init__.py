@@ -1,1 +1,1 @@
-"""Planning layer for intent parsing, time resolution, and agent workflows."""
+"""Planning layer for intent parsing and time resolution."""

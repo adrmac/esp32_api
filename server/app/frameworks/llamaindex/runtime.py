@@ -145,18 +145,28 @@ SQL_VECTOR_SYNTHESIS_PROMPT = PromptTemplate(
 
 
 @lru_cache(maxsize=1)
-def get_sql_only_llamaindex_engine():
-    verified = require_env("PGVECTOR_CONNECTION_STRING", PGVECTOR_CONNECTION_STRING)
-
-    Settings.llm = Ollama(
+def get_llamaindex_llm() -> Ollama:
+    return Ollama(
         model=OLLAMA_CHAT_MODEL,
         base_url=OLLAMA_HOST,
         request_timeout=120.0,
     )
-    Settings.embed_model = OllamaEmbedding(
+
+
+@lru_cache(maxsize=1)
+def get_llamaindex_embed_model() -> OllamaEmbedding:
+    return OllamaEmbedding(
         model_name=OLLAMA_EMBED_MODEL,
         base_url=OLLAMA_HOST,
     )
+
+
+@lru_cache(maxsize=1)
+def get_sql_only_llamaindex_engine():
+    verified = require_env("PGVECTOR_CONNECTION_STRING", PGVECTOR_CONNECTION_STRING)
+
+    Settings.llm = get_llamaindex_llm()
+    Settings.embed_model = get_llamaindex_embed_model()
 
     engine = create_engine(verified)
     sql_database = SQLDatabase(engine, include_tables=[RAW_DATA_TABLE])
@@ -191,15 +201,8 @@ def get_vector_index_from_postgres() -> VectorStoreIndex:
 def get_llamaindex_query_engine():
     verified = require_env("PGVECTOR_CONNECTION_STRING", PGVECTOR_CONNECTION_STRING)
 
-    Settings.llm = Ollama(
-        model=OLLAMA_CHAT_MODEL,
-        base_url=OLLAMA_HOST,
-        request_timeout=120.0,
-    )
-    Settings.embed_model = OllamaEmbedding(
-        OLLAMA_EMBED_MODEL,
-        base_url=OLLAMA_HOST,
-    )
+    Settings.llm = get_llamaindex_llm()
+    Settings.embed_model = get_llamaindex_embed_model()
 
     engine = create_engine(verified)
     sql_database = SQLDatabase(engine, include_tables=[RAW_DATA_TABLE])

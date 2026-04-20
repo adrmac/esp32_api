@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 
 import psycopg
 from langchain_core.documents import Document
@@ -9,28 +10,18 @@ from psycopg import sql
 from app.frameworks.langchain.runtime import get_vectorstore
 from app.providers.ollama.config import SNAPSHOT_DATA_TABLE
 
-test_document = Document(
-    page_content="",
-    metadata={
-        "device_id": "device_id",
-        "window_start": "window_start",
-        "window_end": "window_end",
-    },
-)
+SnapshotMetadata = Mapping[str, object]
 
 
-def _stable_doc_id(document: Document) -> str:
-    device_id = document.metadata["device_id"]
-    window_start = str(document.metadata["window_start"])
+def stable_snapshot_id(metadata: SnapshotMetadata) -> str:
+    device_id = str(metadata["device_id"])
+    window_start = str(metadata["window_start"])
     return f"{device_id}:{window_start}:hourly"
-
-
-_stable_doc_id(test_document)
 
 
 def archive_documents_in_database(
     db_url: str,
-    documents: list[Document],
+    snapshot_rows: list[tuple[str, SnapshotMetadata]],
     archive: str = SNAPSHOT_DATA_TABLE,
 ) -> int:
     query = sql.SQL(
@@ -51,15 +42,14 @@ def archive_documents_in_database(
     cursor = connection.cursor()
 
     try:
-        for document in documents:
-            metadata = document.metadata or {}
+        for snapshot_text, metadata in snapshot_rows:
             cursor.execute(
                 query,
                 (
                     metadata["device_id"],
                     metadata["window_start"],
                     metadata["window_end"],
-                    document.page_content,
+                    snapshot_text,
                 ),
             )
         connection.commit()
@@ -67,11 +57,11 @@ def archive_documents_in_database(
         cursor.close()
         connection.close()
 
-    return len(documents)
+    return len(snapshot_rows)
 
 
 def index_documents_in_vectorstore(documents: list[Document]) -> int:
     vectorstore = get_vectorstore()
-    document_ids = [_stable_doc_id(document) for document in documents]
+    document_ids = [stable_snapshot_id(document.metadata or {}) for document in documents]
     vectorstore.add_documents(documents, ids=document_ids)
     return len(documents)

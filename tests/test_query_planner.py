@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from app.planning.core import query_planner
+from app.planning import planner as query_planner
 
 
 class _FakeResponse:
@@ -23,9 +23,12 @@ def test_plan_query_parses_valid_json(monkeypatch) -> None:
     content = """
     {"intent":"aggregate","metric":"temperature_avg","time":{"mode":"relative","relative":{"unit":"hours","value":6}}}
     """
-    monkeypatch.setattr(query_planner, "get_llm", lambda: _FakeLLM(content))
+    planner_backend = lambda question: content
 
-    plan = query_planner.plan_query("average temperature over last 6 hours")
+    plan = query_planner.plan_query(
+        "average temperature over last 6 hours",
+        planner_backend=planner_backend,
+    )
 
     assert plan["intent"] == "aggregate"
     assert plan["metric"] == "temperature_avg"
@@ -33,9 +36,12 @@ def test_plan_query_parses_valid_json(monkeypatch) -> None:
 
 
 def test_plan_query_falls_back_when_json_is_invalid(monkeypatch) -> None:
-    monkeypatch.setattr(query_planner, "get_llm", lambda: _FakeLLM("not json"))
+    planner_backend = lambda question: "not json"
 
-    plan = query_planner.plan_query("tell me something")
+    plan = query_planner.plan_query(
+        "tell me something",
+        planner_backend=planner_backend,
+    )
 
     assert plan["intent"] == "summarize"
     assert plan["metric"] == "none"

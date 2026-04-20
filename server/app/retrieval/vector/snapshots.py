@@ -6,7 +6,6 @@ from typing import Optional
 
 import os
 import psycopg
-from langchain_core.documents import Document
 from psycopg import sql
 
 DEVICE_ID = os.getenv("DEVICE_ID", "")
@@ -36,6 +35,12 @@ class HourlySnapshot:
     h_min: float
     h_max: float
     h_avg: float
+
+
+@dataclass(frozen=True)
+class SnapshotRecord:
+    text: str
+    metadata: dict[str, object]
 
 
 def _utc_now() -> datetime:
@@ -232,13 +237,13 @@ def _format_snapshot_text(window: SnapshotWindow, stats: HourlySnapshot) -> str:
     )
 
 
-def build_langchain_documents(
+def build_snapshot_records(
     lookback_hours: Optional[int] = None,
     end_time: Optional[datetime] = None,
     start_time: Optional[datetime] = None,
-) -> list[Document]:
+) -> list[SnapshotRecord]:
     connection = psycopg.connect(DATABASE_URL)
-    documents: list[Document] = []
+    records: list[SnapshotRecord] = []
 
     if lookback_hours:
         hours = _define_hour_windows_from_end(
@@ -261,9 +266,9 @@ def build_langchain_documents(
 
             snapshot_text = _format_snapshot_text(hour, stats)
 
-            documents.append(
-                Document(
-                    page_content=snapshot_text,
+            records.append(
+                SnapshotRecord(
+                    text=snapshot_text,
                     metadata={
                         "window_start": hour.window_start.isoformat(),
                         "window_end": hour.window_end.isoformat(),
@@ -277,4 +282,40 @@ def build_langchain_documents(
     finally:
         connection.close()
 
-    return documents
+    return records
+
+
+def fetch_snapshots_between(
+    start_utc: datetime,
+    end_utc: datetime,
+    device_id: str = DEVICE_ID,
+    table: str = os.getenv("SNAPSHOT_DATA_TABLE", ""),
+) -> list[SnapshotRecord]:
+    query = sql.SQL(
+        """
+      select window_start, window_end, snapshot_text
+      from {table}
+      where device_id = %s
+        and window_start >= %s
+        and window_end <= %s
+      order by window_start asc;
+    """
+    ).format(table=sql.Identifier(table))
+    records: list[SnapshotRecord] = []
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (device_id, start_utc, end_utc))
+            for window_start, window_end, snapshot_text in cur.fetchall():
+                records.append(
+                    SnapshotRecord(
+                        text=snapshot_text,
+                        metadata={
+                            "kind": "hourly_snapshot",
+                            "device_id": device_id,
+                            "window_start": window_start.isoformat(),
+                            "window_end": window_end.isoformat(),
+                            "source": table,
+                        },
+                    )
+                )
+    return records

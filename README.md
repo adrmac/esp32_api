@@ -125,12 +125,16 @@ Clone the repository and install dependencies:
 
 `git clone https://github.com/postoccupancy/esp32_api.git`  
 `cd esp32_api`  
+`python -m venv .venv`  
+`. ./.venv/bin/activate`  
 `pip install -r requirements.txt`
 
 Set up environment variables (see **Configuration** below), then start the API:
 
 `cd server`  
 `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
+
+If you are opening the repo inside the `orcasound-next` devcontainer, keep using that container's interpreter and environment. The root `.venv` is the default for this workspace, and `.venv-orca` is the extra local copy for the other workspace.
 
 
 
@@ -183,16 +187,16 @@ The current automated tests focus on the new Planning -> Retrieval -> Execution 
 Covered areas:
 
 * auth dependency checks for `STATUS_TOKEN`, `INGEST_TOKEN`, and `RAG_TOKEN`
-* planning logic in `planning/core/query_planner.py`
+* planning logic in `planning/planner.py`
 * structured retrieval in `retrieval/structured/timeseries.py`
 * structured retrieval dispatch in `retrieval/structured/weather.py`
 * vector-ingestion helpers in `retrieval/vector/ingest_docs.py`
 
-Run the test suite from the server virtual environment:
+Run the test suite from the root `.venv`:
 
 ```bash
-cd server
-. .venv/bin/activate
+cd esp32_api
+. ./.venv/bin/activate
 python -m pytest /workspaces/esp32_api/tests
 ```
 

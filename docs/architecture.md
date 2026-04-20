@@ -50,8 +50,8 @@ Responsibilities:
 
 Primary file:
 
-* [`query_planner.py`](/workspaces/esp32_api/server/app/planning/core/query_planner.py)
-* [`agent_workflow.py`](/workspaces/esp32_api/server/app/planning/agents/agent_workflow.py)
+* [`planner.py`](/workspaces/esp32_api/server/app/planning/planner.py)
+* [`models.py`](/workspaces/esp32_api/server/app/planning/models.py)
 
 Programming style:
 

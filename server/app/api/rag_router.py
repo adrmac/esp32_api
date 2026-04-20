@@ -2,15 +2,9 @@ import os
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from app.execution.answering.rag_query import llamaindex_answer_question
-from app.providers.ollama.config import DEVICE_ID
-from app.retrieval.vector.rag_index import (
-    archive_documents_in_database,
-    index_documents_in_vectorstore,
-)
-from app.retrieval.vector.rag_snapshots import build_langchain_documents
-
 from app.api.auth import require_rag_token
+from app.execution.answering.service import answer_question
+from app.retrieval.vector.service import ingest_literature, index_snapshots
 
 
 ### FastAPI authentication layer ###
@@ -35,34 +29,38 @@ DATABASE_URL = os.getenv("SUPABASE_DB_URL_IPV4", "")
 
 # this one is for browser use with a query param
 @router.get("/query", dependencies=[Depends(require_rag_token)])
-def rag_query_get(question: str = Query(...)):
-    return llamaindex_answer_question(question)
+def query_get(
+    question: str = Query(...),
+    framework: str | None = Query(default=None),
+):
+    return answer_question(question, framework=framework)
 
 # proper post request with a header
 @router.post("/query", dependencies=[Depends(require_rag_token)])
-def rag_query(request: QueryReq):
-    return llamaindex_answer_question(request.question)
+def query(
+    request: QueryReq,
+    framework: str | None = Query(default=None),
+):
+    return answer_question(request.question, framework=framework)
 
 @router.post("/rebuild", dependencies=[Depends(require_rag_token)])
-def rag_rebuild():
-    documents = build_langchain_documents()
-    if not documents:
-        return {"ok": True, "snapshots_indexed": 0, "note": "No data to index from all time."}
-    index_documents_in_vectorstore(documents)
-    archive_documents_in_database(db_url=DATABASE_URL, documents=documents, archive=SNAPSHOT_DATA_TABLE)
-    return {"ok": True, "snapshots_indexed": len(documents)}
+def rebuild_snapshot_index(framework: str | None = Query(default=None)):
+    return index_snapshots(
+        db_url=DATABASE_URL,
+        framework=framework,
+        archive=SNAPSHOT_DATA_TABLE,
+        lookback_hours=None,
+    )
 
 @router.post("/index", dependencies=[Depends(require_rag_token)])
-def rag_index():
-    documents = build_langchain_documents(lookback_hours=1)
-    if not documents:
-        return {"ok": True, "snapshots_indexed": 0, "note": "No data to index in the last hour."}
-    index_documents_in_vectorstore(documents)
-    archive_documents_in_database(db_url=DATABASE_URL, documents=documents, archive=SNAPSHOT_DATA_TABLE)
-    return {"ok": True, "snapshots_indexed": len(documents)}
+def index_recent_snapshots(framework: str | None = Query(default=None)):
+    return index_snapshots(
+        db_url=DATABASE_URL,
+        framework=framework,
+        archive=SNAPSHOT_DATA_TABLE,
+        lookback_hours=1,
+    )
 
 @router.post("/ingest_docs", dependencies=[Depends(require_rag_token)])
-def rag_ingest_docs():
-    from app.retrieval.vector.ingest_docs import ingest
-    ingest()
-    return {"ok": True, "message": "Ingestion complete."}
+def ingest_literature_docs(framework: str | None = Query(default=None)):
+    return ingest_literature(framework=framework)
