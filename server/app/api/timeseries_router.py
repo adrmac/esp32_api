@@ -18,7 +18,7 @@ RAW_DATA_TABLE = os.getenv("RAW_DATA_TABLE", "readings")
 
 @router.get("/timeseries", dependencies=[Depends(require_status_token)])
 def get_readings(
-    limit: int = Query(default=100, lte=1000),
+    limit: int = Query(default=100, lte=10000),
     offset: int = Query(default=0, ge=0),
     table: str = Query(default=RAW_DATA_TABLE),
     start_ts: str | None = Query(default=None),

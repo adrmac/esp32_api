@@ -33,16 +33,11 @@ class IngestPayload(BaseModel):
 
     device_id: str
 
-cors_origins = [
-    origin.strip()
-    for origin in os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000").split(",")
-    if origin.strip()
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=False,
+    allow_origins=["https://esp32ui.vercel.app", "https://esp32-ui-252775611344.us-west1.run.app"],
+    allow_origin_regex=r"http://localhost:\d+",
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
