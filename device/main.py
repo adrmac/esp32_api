@@ -90,7 +90,7 @@ while True:
                 SERVER_ENDPOINT,
                 headers={
                     "Content-Type": "application/json",
-                    "X-Token": TOKEN,
+                    "X-Ingest-Token": TOKEN,
                 },
                 data=ujson.dumps(payload),
             )

@@ -18,8 +18,9 @@ def _require_secret_token(provided: str, env_name: str) -> None:
 
 def require_status_token(
     x_status_token: str = Header(default="", alias="X-Status-Token"),
+    token: str = Query(default=""),
 ) -> None:
-    _require_secret_token(x_status_token, "STATUS_TOKEN")
+    _require_secret_token(x_status_token or token, "STATUS_TOKEN")
 
 
 def require_ingest_token(
