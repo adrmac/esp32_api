@@ -14,7 +14,7 @@
 
 ## Current Device Work
 - Target: Espressif ESP32-S3-DevKitC-1 with ESP32-S3-WROOM-1-N8R8 (8 MB flash, 8 MB octal PSRAM).
-- Planned wiring: BME280 SDA/SCL on GPIO10/9; INMP441 BCLK/WS/SD on GPIO17/18/21.
+- Wiring: BME280 SDA/SCL on GPIO10/9; INMP441 SD/BCLK/WS on GPIO16/17/18. INMP441 L/R is grounded for left-channel capture.
 - OTA hostname: `indoor-sky.local`.
 - PlatformIO USB and OTA environments are under `device/`.
 - Existing ignored `device/secrets.py` supplies Wi-Fi credentials at build time without copying them into tracked source.
