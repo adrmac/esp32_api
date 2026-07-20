@@ -18,7 +18,8 @@
 - OTA hostname: `indoor-sky.local`.
 - PlatformIO USB and OTA environments are under `device/`.
 - Existing ignored `device/secrets.py` supplies Wi-Fi credentials at build time without copying them into tracked source.
-- Bootstrap firmware builds successfully. The remaining blocker is that macOS does not currently expose the connected board as a USB serial device.
+- Bootstrap firmware was installed successfully over native USB at `/dev/cu.usbmodem11201`.
+- The first boot did not appear at `indoor-sky.local`; USB CDC logging is being enabled to distinguish Wi-Fi configuration from mDNS startup issues before the OTA proof upload.
 
 ## Repository Map
 - `esp32_api`: Python/FastAPI backend.
