@@ -22,7 +22,7 @@
 - Bootstrap is online at `192.168.0.32`; `/status` confirms clean firmware identity, strong Wi-Fi, 8 MB PSRAM, and OTA readiness.
 - macOS currently times out resolving `indoor-sky.local`, although the device advertises the name; OTA can target the IP directly.
 - The first OTA proof negotiated and transferred 17% before the default 10-second client timeout. The OTA environment now uses a 60-second timeout for this slower path.
-- Network testing found 10% packet loss and approximately 438 ms average LAN latency despite -25 dBm RSSI. Wi-Fi power saving was still enabled; the bootstrap now disables it, matching the proven electric-sky firmware.
+- Network testing found 10% packet loss and approximately 438-550 ms average LAN latency despite -25 to -28 dBm RSSI. The initial Wi-Fi sleep fix ran before `WiFi.begin()` and may have been overwritten; it now runs after a confirmed connection and `/status` exposes `wifi_sleep` for verification.
 
 ## Repository Map
 - `esp32_api`: Python/FastAPI backend.

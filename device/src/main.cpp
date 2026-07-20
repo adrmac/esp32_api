@@ -17,7 +17,6 @@ bool servicesStarted = false;
 
 void connectWifi() {
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
   WiFi.setHostname(HOSTNAME);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   lastWifiAttemptMs = millis();
@@ -29,6 +28,7 @@ void connectWifi() {
     Serial.print('.');
   }
   Serial.println();
+  if (WiFi.status() == WL_CONNECTED) WiFi.setSleep(false);
 }
 
 void handleStatus() {
@@ -40,7 +40,7 @@ void handleStatus() {
       "{\"firmware_git_sha\":\"%s\",\"firmware_git_dirty\":%s,"
       "\"firmware_build_utc\":\"%s\",\"hostname\":\"%s\","
       "\"uptime_ms\":%lu,\"wifi_connected\":%s,\"ip\":\"%s\","
-      "\"wifi_rssi_dbm\":%ld,\"free_heap\":%u,\"psram_found\":%s,"
+      "\"wifi_rssi_dbm\":%ld,\"wifi_sleep\":%s,\"free_heap\":%u,\"psram_found\":%s,"
       "\"psram_size\":%u,\"free_psram\":%u,\"ota_ready\":%s}",
       FIRMWARE_GIT_SHA,
       FIRMWARE_GIT_DIRTY ? "true" : "false",
@@ -50,6 +50,7 @@ void handleStatus() {
       connected ? "true" : "false",
       connected ? WiFi.localIP().toString().c_str() : "",
       connected ? static_cast<long>(WiFi.RSSI()) : 0L,
+      WiFi.getSleep() ? "true" : "false",
       ESP.getFreeHeap(),
       psramFound() ? "true" : "false",
       ESP.getPsramSize(),
