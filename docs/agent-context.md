@@ -21,8 +21,8 @@
 - Bootstrap firmware was installed successfully over native USB at `/dev/cu.usbmodem11201`.
 - Bootstrap is online at `192.168.0.32`; `/status` confirms clean firmware identity, strong Wi-Fi, 8 MB PSRAM, and OTA readiness.
 - macOS currently times out resolving `indoor-sky.local`, although the device advertises the name; OTA can target the IP directly.
-- The first OTA proof negotiated and transferred 17% before the default 10-second client timeout. The OTA environment now uses a 60-second timeout for this slower path.
-- Network testing found 10% packet loss and approximately 438-550 ms average LAN latency despite -25 to -28 dBm RSSI. The initial Wi-Fi sleep fix ran before `WiFi.begin()` and may have been overwritten; it now runs after a confirmed connection and `/status` exposes `wifi_sleep` for verification.
+- `/status` verifies `wifi_sleep: false`; loss improved to zero, but the extender path remains bursty at roughly 331 ms average latency.
+- OTA negotiates and transfers normally, but the stock Espressif uploader aborts whenever one 1 KB acknowledgment exceeds its hard-coded 10-second limit. `device/scripts/espota.py` is the upstream uploader with that per-chunk timeout changed to the configured value; the OTA environment selects it through `use_local_espota.py`.
 
 ## Repository Map
 - `esp32_api`: Python/FastAPI backend.
