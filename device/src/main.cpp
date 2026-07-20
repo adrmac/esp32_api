@@ -67,6 +67,7 @@ void startNetworkServices() {
   }
 
   ArduinoOTA.setHostname(HOSTNAME);
+  ArduinoOTA.setTimeout(30000);
   ArduinoOTA.onStart([]() { Serial.println("OTA start"); });
   ArduinoOTA.onEnd([]() { Serial.println("OTA complete"); });
   ArduinoOTA.onError([](ota_error_t error) {
