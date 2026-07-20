@@ -17,6 +17,7 @@ bool servicesStarted = false;
 
 void connectWifi() {
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
   WiFi.setHostname(HOSTNAME);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   lastWifiAttemptMs = millis();
