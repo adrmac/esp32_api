@@ -19,7 +19,9 @@
 - PlatformIO USB and OTA environments are under `device/`.
 - Existing ignored `device/secrets.py` supplies Wi-Fi credentials at build time without copying them into tracked source.
 - Bootstrap firmware was installed successfully over native USB at `/dev/cu.usbmodem11201`.
-- The first boot did not appear at `indoor-sky.local`; USB CDC logging is being enabled to distinguish Wi-Fi configuration from mDNS startup issues before the OTA proof upload.
+- Bootstrap is online at `192.168.0.32`; `/status` confirms clean firmware identity, strong Wi-Fi, 8 MB PSRAM, and OTA readiness.
+- macOS currently times out resolving `indoor-sky.local`, although the device advertises the name; OTA can target the IP directly.
+- The first OTA proof negotiated and transferred 17% before the default 10-second client timeout. The OTA environment now uses a 60-second timeout for this slower path.
 
 ## Repository Map
 - `esp32_api`: Python/FastAPI backend.
