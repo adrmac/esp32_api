@@ -9,7 +9,16 @@
 - Use workspace or repo settings for stable editor/runtime configuration.
 
 ## Current Objective
-- Keep the Python backend and the two Next.js frontends easy to reopen, reconfigure, and continue working on without re-discovering basic setup details.
+- Migrate `device/` from the AM2320 MicroPython prototype to PlatformIO firmware for an indoor ESP32-S3-DevKitC-1-N8R8 monitor.
+- Establish and verify USB bootstrap plus OTA before adding the BME280 and INMP441 sensor paths.
+
+## Current Device Work
+- Target: Espressif ESP32-S3-DevKitC-1 with ESP32-S3-WROOM-1-N8R8 (8 MB flash, 8 MB octal PSRAM).
+- Planned wiring: BME280 SDA/SCL on GPIO10/9; INMP441 BCLK/WS/SD on GPIO17/18/21.
+- OTA hostname: `indoor-sky.local`.
+- PlatformIO USB and OTA environments are under `device/`.
+- Existing ignored `device/secrets.py` supplies Wi-Fi credentials at build time without copying them into tracked source.
+- Bootstrap firmware builds successfully. The remaining blocker is that macOS does not currently expose the connected board as a USB serial device.
 
 ## Repository Map
 - `esp32_api`: Python/FastAPI backend.

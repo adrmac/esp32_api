@@ -1,4 +1,5 @@
 WIFI_SSID = "your-wifi"
-WIFI_PASSWORD = "your-password"
-INGEST_URL = "https://your-cloud-run-url/ingest"
-INGEST_TOKEN = "your-token"
+WIFI_PASS = "your-password"
+SERVER_ENDPOINT = "https://your-cloud-run-url/ingest"
+TOKEN = "your-token"
+DEVICE_ID = "esp32-s3-devkit-001"
