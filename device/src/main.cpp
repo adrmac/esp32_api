@@ -5,6 +5,7 @@
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <WiFi.h>
+#include <WiFiClient.h>
 #include <WiFiUdp.h>
 #include <Wire.h>
 #include <driver/i2s.h>
@@ -214,6 +215,7 @@ AudioSample latestAudio = {};
 bool hasBme = false;
 bool hasAudio = false;
 uint8_t oscPacketBuffer[OSC_PACKET_BYTES];
+uint8_t throughputChunk[4096];
 TransportPacket transportWorkPacket;
 TransportPacket transportStalePacket;
 PcmPacket pcmStalePacket;
@@ -521,6 +523,8 @@ String statusJson() {
   xSemaphoreGive(latestMutex);
   String json = "{";
   wifi_ap_record_t apInfo = {};
+  uint8_t protocolMask = 0;
+  if (WiFi.status() == WL_CONNECTED) esp_wifi_get_protocol(WIFI_IF_STA, &protocolMask);
   bool hasApInfo = WiFi.status() == WL_CONNECTED && esp_wifi_sta_get_ap_info(&apInfo) == ESP_OK;
   String phyModes;
   if (hasApInfo) {
@@ -538,6 +542,7 @@ String statusJson() {
   json += "\"wifi_connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",\"ip\":\"" + WiFi.localIP().toString() + "\",";
   json += "\"wifi_ssid\":\"" + WiFi.SSID() + "\",\"wifi_bssid\":\"" + WiFi.BSSIDstr() + "\",\"wifi_channel\":" + String(hasApInfo ? apInfo.primary : 0) + ",";
   json += "\"wifi_phy_modes\":\"" + phyModes + "\",\"wifi_tx_power_dbm\":" + String(static_cast<int>(WiFi.getTxPower()) / 4.0f, 1) + ",";
+  json += "\"wifi_protocol_mask\":" + String(protocolMask) + ",\"wifi_n_only\":" + String(protocolMask == WIFI_PROTOCOL_11N ? "true" : "false") + ",";
   json += "\"wifi_rssi_dbm\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",\"wifi_reconnects\":" + String(wifiReconnects) + ",";
   json += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",\"min_free_heap\":" + String(ESP.getMinFreeHeap()) + ",\"free_psram\":" + String(ESP.getFreePsram()) + ",";
   json += "\"transport_stack_free\":" + String(transportTaskHandle ? uxTaskGetStackHighWaterMark(transportTaskHandle) : 0) + ",\"audio_stack_free\":" + String(audioTaskHandle ? uxTaskGetStackHighWaterMark(audioTaskHandle) : 0) + ",\"pcm_stack_free\":" + String(pcmTaskHandle ? uxTaskGetStackHighWaterMark(pcmTaskHandle) : 0) + ",";
@@ -558,7 +563,10 @@ void webSocketEvent(uint8_t number, WStype_t type, uint8_t*, size_t) {
 void connectWifi() {
   WiFi.mode(WIFI_STA); WiFi.setHostname(HOSTNAME); WiFi.begin(WIFI_SSID, WIFI_PASSWORD); lastWifiAttemptMs = millis();
   for (int i = 0; i < 40 && WiFi.status() != WL_CONNECTED; ++i) delay(250);
-  if (WiFi.status() == WL_CONNECTED) WiFi.setSleep(false);
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFi.setSleep(false);
+    esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11N);
+  }
 }
 
 void startServices() {
@@ -591,6 +599,22 @@ void startServices() {
     }
     server.send(200, "application/json", String("{\"enabled\":") + (diagnosticIsolation ? "true" : "false") + "}");
   });
+  server.on("/diagnostics/throughput", []() {
+    size_t total = 1024 * 1024;
+    if (server.hasArg("kb")) total = constrain(server.arg("kb").toInt(), 64, 8192) * 1024U;
+    server.sendHeader("Cache-Control", "no-store");
+    server.setContentLength(total);
+    server.send(200, "application/octet-stream", "");
+    WiFiClient client = server.client();
+    size_t sent = 0;
+    while (sent < total && client.connected()) {
+      size_t count = min(sizeof(throughputChunk), total - sent);
+      size_t written = client.write(throughputChunk, count);
+      if (!written) break;
+      sent += written;
+      taskYIELD();
+    }
+  });
   server.on("/audio/usb", []() {
     if (server.hasArg("enabled")) {
       String value = server.arg("enabled");
@@ -608,6 +632,7 @@ void startServices() {
 
 void setup() {
   Serial.begin(115200); delay(500); resetReason = esp_reset_reason(); bootCount++;
+  for (size_t i = 0; i < sizeof(throughputChunk); ++i) throughputChunk[i] = static_cast<uint8_t>(i * 31U + 17U);
   latestMutex = xSemaphoreCreateMutex();
   udpMutex = xSemaphoreCreateMutex();
   transportQueueStorage = static_cast<uint8_t*>(heap_caps_malloc(TRANSPORT_QUEUE_DEPTH * sizeof(TransportPacket), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
