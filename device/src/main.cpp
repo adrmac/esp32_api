@@ -182,6 +182,8 @@ TaskHandle_t pcmTaskHandle = nullptr;
 
 volatile bool otaInProgress = false;
 volatile bool otaAudioStopped = false;
+volatile bool diagnosticIsolation = false;
+volatile bool diagnosticRestorePcm = false;
 volatile bool pcmStreamEnabled = false;
 volatile bool usbPcmStreamEnabled = false;
 volatile bool pcmAutoDisabled = false;
@@ -403,7 +405,7 @@ void bmeTask(void*) {
   uint32_t sequence = 0;
   while (true) {
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(BME_INTERVAL_MS));
-    if (otaInProgress) continue;
+    if (otaInProgress || diagnosticIsolation) continue;
     BmeSample sample = {++sequence, nowUs(), bme.readTemperature(), bme.readHumidity(), bme.readPressure() / 100.0f};
     if (isnan(sample.temperature) || isnan(sample.humidity) || isnan(sample.pressure)) continue;
     bmeRing.push(sample); bmeProduced++;
@@ -418,6 +420,13 @@ void audioTask(void*) {
   float previousInput = 0, previousOutput = 0;
   bool filterReady = false;
   while (true) {
+    if (diagnosticIsolation) {
+      stopMicrophone();
+      pcmCount = 0; filterReady = false;
+      while (diagnosticIsolation) vTaskDelay(pdMS_TO_TICKS(10));
+      startMicrophone();
+      continue;
+    }
     if (otaInProgress) {
       stopMicrophone(); otaAudioStopped = true;
       while (otaInProgress) vTaskDelay(pdMS_TO_TICKS(10));
@@ -513,7 +522,7 @@ void transportTask(void*) {
   TickType_t lastWake = xTaskGetTickCount();
   while (true) {
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(TRANSPORT_INTERVAL_MS));
-    if (otaInProgress || !buildBatch(transportWorkPacket)) continue;
+    if (otaInProgress || diagnosticIsolation || !buildBatch(transportWorkPacket)) continue;
     sendOscBatches(transportWorkPacket);
     if (webSocketClients && xQueueSend(transportQueue, &transportWorkPacket, 0) != pdTRUE) {
       xQueueReceive(transportQueue, &transportStalePacket, 0); transportDrops++;
@@ -532,6 +541,7 @@ String statusJson() {
   json += "\"firmware_build_utc\":\"" FIRMWARE_BUILD_UTC "\",\"hostname\":\"" + String(HOSTNAME) + "\",";
   json += "\"uptime_ms\":" + String(millis()) + ",\"boot_count\":" + String(bootCount) + ",";
   json += "\"reset_reason\":\"" + String(resetReasonName(resetReason)) + "\",\"reset_reason_code\":" + String(static_cast<int>(resetReason)) + ",";
+  json += "\"diagnostic_isolation\":" + String(diagnosticIsolation ? "true" : "false") + ",";
   json += "\"wifi_connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",\"ip\":\"" + WiFi.localIP().toString() + "\",";
   json += "\"wifi_rssi_dbm\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",\"wifi_reconnects\":" + String(wifiReconnects) + ",";
   json += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",\"min_free_heap\":" + String(ESP.getMinFreeHeap()) + ",\"free_psram\":" + String(ESP.getFreePsram()) + ",";
@@ -568,6 +578,25 @@ void startServices() {
   server.on("/dashboard", []() { server.send_P(200, "text/html", DASHBOARD_HTML); });
   server.on("/status", []() { server.sendHeader("Cache-Control", "no-store"); server.sendHeader("Connection", "close"); server.send(200, "application/json", statusJson()); server.client().stop(); });
   server.on("/audio/raw", []() { if (server.hasArg("enabled")) { String value = server.arg("enabled"); setPcmStreamEnabled(value == "1" || value == "true" || value == "on"); } server.send(200, "application/json", String("{\"enabled\":") + (pcmStreamEnabled ? "true" : "false") + ",\"auto_disabled\":" + (pcmAutoDisabled ? "true" : "false") + "}"); });
+  server.on("/diagnostics/isolation", []() {
+    if (server.hasArg("enabled")) {
+      String value = server.arg("enabled");
+      bool enabled = value == "1" || value == "true" || value == "on";
+      if (enabled && !diagnosticIsolation) {
+        diagnosticRestorePcm = pcmStreamEnabled;
+        pcmStreamEnabled = false; usbPcmStreamEnabled = false;
+        pcmTcp.stop();
+        if (pcmQueue) xQueueReset(pcmQueue);
+        if (transportQueue) xQueueReset(transportQueue);
+        diagnosticIsolation = true;
+      } else if (!enabled && diagnosticIsolation) {
+        diagnosticIsolation = false;
+        pcmStreamEnabled = diagnosticRestorePcm;
+        diagnosticRestorePcm = false;
+      }
+    }
+    server.send(200, "application/json", String("{\"enabled\":") + (diagnosticIsolation ? "true" : "false") + "}");
+  });
   server.on("/audio/usb", []() {
     if (server.hasArg("enabled")) {
       String value = server.arg("enabled");
