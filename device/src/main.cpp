@@ -159,6 +159,7 @@ SampleRing<BmeSample, 256> bmeRing;
 SampleRing<AudioSample, 512> audioRing;
 
 SemaphoreHandle_t latestMutex = nullptr;
+SemaphoreHandle_t udpMutex = nullptr;
 QueueHandle_t transportQueue = nullptr;
 QueueHandle_t pcmQueue = nullptr;
 StaticQueue_t transportQueueControl;
@@ -264,10 +265,15 @@ void finishOscElement(OscWriter& writer, size_t position) { writer.patchU32(posi
 
 bool sendOscPacket(OscWriter& writer) {
   if (!writer.ok || !writer.length || WiFi.status() != WL_CONNECTED) { oscSendFailures++; return false; }
+  if (!udpMutex || xSemaphoreTake(udpMutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+    oscSendFailures++;
+    return false;
+  }
   uint64_t started = nowUs();
   bool sent = oscUdp.beginPacket(ROUTER_IP, OSC_ROUTER_PORT);
   if (sent) sent = oscUdp.write(writer.data, writer.length) == writer.length;
   if (sent) sent = oscUdp.endPacket(); else oscUdp.stop();
+  xSemaphoreGive(udpMutex);
   uint32_t elapsed = nowUs() - started;
   oscSendAvgUs = oscSendAvgUs ? (oscSendAvgUs * 15 + elapsed) / 16 : elapsed;
   if (elapsed > oscSendMaxUs) oscSendMaxUs = elapsed;
@@ -403,10 +409,17 @@ void pcmTransportTask(void*) {
   while (true) {
     if (xQueueReceive(pcmQueue, &packet, pdMS_TO_TICKS(100)) != pdTRUE) continue;
     if (otaInProgress || !pcmStreamEnabled) continue;
+    // OSC carries the primary sensor data. If it is using the UDP stack, discard
+    // this real-time audio packet instead of letting PCM create network backlog.
+    if (!udpMutex || xSemaphoreTake(udpMutex, pdMS_TO_TICKS(2)) != pdTRUE) {
+      pcmQueueDrops++;
+      continue;
+    }
     size_t bytes = packet.header.headerBytes + packet.header.sampleCount * sizeof(int16_t);
     bool sent = WiFi.status() == WL_CONNECTED && pcmUdp.beginPacket(ROUTER_IP, PCM_ROUTER_PORT);
     if (sent) sent = pcmUdp.write(reinterpret_cast<uint8_t*>(&packet), bytes) == bytes;
     if (sent) sent = pcmUdp.endPacket(); else pcmUdp.stop();
+    xSemaphoreGive(udpMutex);
     if (!sent) {
       pcmSendFailures++;
       pcmConsecutiveFailures++;
@@ -433,7 +446,7 @@ void transportTask(void*) {
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(TRANSPORT_INTERVAL_MS));
     if (otaInProgress || !buildBatch(transportWorkPacket)) continue;
     sendOscBatches(transportWorkPacket);
-    if (xQueueSend(transportQueue, &transportWorkPacket, 0) != pdTRUE) {
+    if (webSocketClients && xQueueSend(transportQueue, &transportWorkPacket, 0) != pdTRUE) {
       xQueueReceive(transportQueue, &transportStalePacket, 0); transportDrops++;
       xQueueSend(transportQueue, &transportWorkPacket, 0);
     }
@@ -493,6 +506,7 @@ void startServices() {
 void setup() {
   Serial.begin(115200); delay(500); resetReason = esp_reset_reason(); bootCount++;
   latestMutex = xSemaphoreCreateMutex();
+  udpMutex = xSemaphoreCreateMutex();
   transportQueueStorage = static_cast<uint8_t*>(heap_caps_malloc(TRANSPORT_QUEUE_DEPTH * sizeof(TransportPacket), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   pcmQueueStorage = static_cast<uint8_t*>(heap_caps_malloc(PCM_QUEUE_DEPTH * sizeof(PcmPacket), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   transportQueue = transportQueueStorage ? xQueueCreateStatic(TRANSPORT_QUEUE_DEPTH, sizeof(TransportPacket), transportQueueStorage, &transportQueueControl) : nullptr;
@@ -500,7 +514,7 @@ void setup() {
   Wire.begin(BME_SDA_PIN, BME_SCL_PIN);
   bmeReady = bme.begin(0x76, &Wire) || bme.begin(0x77, &Wire);
   if (bmeReady) bme.setSampling(Adafruit_BME280::MODE_NORMAL, Adafruit_BME280::SAMPLING_X1, Adafruit_BME280::SAMPLING_X1, Adafruit_BME280::SAMPLING_X1, Adafruit_BME280::FILTER_OFF, Adafruit_BME280::STANDBY_MS_0_5);
-  if (!latestMutex || !transportQueue || !pcmQueue || !bmeReady || !startMicrophone()) while (true) delay(1000);
+  if (!latestMutex || !udpMutex || !transportQueue || !pcmQueue || !bmeReady || !startMicrophone()) while (true) delay(1000);
   connectWifi(); startServices();
   xTaskCreatePinnedToCore(audioTask, "audio", 4096, nullptr, 3, &audioTaskHandle, 1);
   xTaskCreatePinnedToCore(pcmTransportTask, "pcm-net", 4096, nullptr, 3, &pcmTaskHandle, 1);
