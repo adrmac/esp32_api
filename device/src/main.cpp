@@ -108,6 +108,14 @@ struct PcmPacket {
   int16_t samples[PCM_SAMPLES_PER_PACKET];
 } __attribute__((packed));
 
+struct EncodedPcmPacket {
+  PcmPacketHeader header;
+  int16_t predictor;
+  uint8_t index;
+  uint8_t reserved;
+  uint8_t data[PCM_SAMPLES_PER_PACKET / 2];
+} __attribute__((packed));
+
 struct OscWriter {
   uint8_t* data;
   size_t capacity;
@@ -149,6 +157,7 @@ static_assert(sizeof(AudioSample) == 16);
 static_assert(sizeof(PacketHeader) == 76);
 static_assert(sizeof(PcmPacketHeader) == 32);
 static_assert(sizeof(PcmPacket) == 1312);
+static_assert(sizeof(EncodedPcmPacket) == 356);
 static_assert(sizeof(PacketHeader) + MAX_BME_PER_PACKET * sizeof(BmeSample) + MAX_AUDIO_PER_PACKET * sizeof(AudioSample) <= TRANSPORT_PACKET_BYTES);
 
 WebServer server(80);
@@ -206,12 +215,47 @@ uint8_t oscPacketBuffer[OSC_PACKET_BYTES];
 TransportPacket transportWorkPacket;
 TransportPacket transportStalePacket;
 PcmPacket pcmStalePacket;
+EncodedPcmPacket encodedPcmWork;
 BmeSample transportBmeBatch[MAX_BME_PER_PACKET];
 AudioSample transportAudioBatch[MAX_AUDIO_PER_PACKET];
 RTC_DATA_ATTR uint32_t bootCount = 0;
 esp_reset_reason_t resetReason = ESP_RST_UNKNOWN;
 
 uint64_t nowUs() { return static_cast<uint64_t>(esp_timer_get_time()); }
+
+const int8_t IMA_INDEX_TABLE[8] = {-1, -1, -1, -1, 2, 4, 6, 8};
+const uint16_t IMA_STEP_TABLE[89] = {
+  7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,
+  73,80,88,97,107,118,130,143,157,173,190,209,230,253,279,307,337,371,408,
+  449,494,544,598,658,724,796,876,963,1060,1166,1282,1411,1552,1707,1878,
+  2066,2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,
+  7845,8630,9493,10442,11487,12635,13899,15289,16818,18500,20350,22385,
+  24623,27086,29794,32767
+};
+
+size_t encodeImaAdpcm(const PcmPacket& source, EncodedPcmPacket& output) {
+  output.header = source.header;
+  output.header.bitsPerSample = 4;
+  output.header.headerBytes = sizeof(PcmPacketHeader) + 4;
+  int predictor = source.samples[0], index = 0;
+  output.predictor = predictor; output.index = index; output.reserved = 0;
+  memset(output.data, 0, sizeof(output.data));
+  for (size_t i = 1; i < source.header.sampleCount; ++i) {
+    int step = IMA_STEP_TABLE[index], difference = source.samples[i] - predictor;
+    uint8_t code = difference < 0 ? 8 : 0;
+    if (difference < 0) difference = -difference;
+    int delta = step >> 3;
+    if (difference >= step) { code |= 4; difference -= step; delta += step; }
+    if (difference >= (step >> 1)) { code |= 2; difference -= step >> 1; delta += step >> 1; }
+    if (difference >= (step >> 2)) { code |= 1; delta += step >> 2; }
+    predictor += code & 8 ? -delta : delta;
+    predictor = constrain(predictor, -32768, 32767);
+    index = constrain(index + IMA_INDEX_TABLE[code & 7], 0, 88);
+    size_t nibble = i - 1, byte = nibble / 2;
+    if (nibble & 1) output.data[byte] |= code << 4; else output.data[byte] = code;
+  }
+  return output.header.headerBytes + (source.header.sampleCount - 1 + 1) / 2;
+}
 
 const char* resetReasonName(esp_reset_reason_t reason) {
   switch (reason) {
@@ -424,6 +468,7 @@ void pcmTransportTask(void*) {
       else pcmSendFailures++;
       continue;
     }
+    bytes = encodeImaAdpcm(packet, encodedPcmWork);
     // This dedicated task may wait for TCP retransmission while OSC continues
     // independently. Retry the complete framed packet after a reconnect.
     bool sent = false;
@@ -434,7 +479,7 @@ void pcmTransportTask(void*) {
         if (!pcmTcp.connect(ROUTER_IP, PCM_ROUTER_PORT, 1000)) break;
         pcmTcp.setNoDelay(true);
       }
-      sent = pcmTcp.write(reinterpret_cast<uint8_t*>(&packet), bytes) == bytes;
+      sent = pcmTcp.write(reinterpret_cast<uint8_t*>(&encodedPcmWork), bytes) == bytes;
       if (!sent) pcmTcp.stop();
     }
     if (!sent) {
