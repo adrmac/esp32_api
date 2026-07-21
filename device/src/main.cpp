@@ -6,6 +6,8 @@
 #include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <WiFiClient.h>
+#include <sys/socket.h>
 #include <Wire.h>
 #include <driver/i2s.h>
 #include <esp_heap_caps.h>
@@ -30,7 +32,7 @@ constexpr uint32_t BME_INTERVAL_MS = 10;
 constexpr uint32_t TRANSPORT_INTERVAL_MS = 63;
 constexpr uint32_t WIFI_RETRY_MS = 10000;
 constexpr uint16_t OSC_ROUTER_PORT = 5005;
-constexpr uint16_t PCM_ROUTER_PORT = 5007;
+constexpr uint16_t PCM_ROUTER_PORT = 5008;
 constexpr size_t MAX_BME_PER_PACKET = 8;
 constexpr size_t MAX_AUDIO_PER_PACKET = 16;
 constexpr size_t TRANSPORT_PACKET_BYTES = 640;
@@ -153,7 +155,7 @@ static_assert(sizeof(PacketHeader) + MAX_BME_PER_PACKET * sizeof(BmeSample) + MA
 WebServer server(80);
 WebSocketsServer webSocket(81);
 WiFiUDP oscUdp;
-WiFiUDP pcmUdp;
+WiFiClient pcmTcp;
 Adafruit_BME280 bme;
 SampleRing<BmeSample, 256> bmeRing;
 SampleRing<AudioSample, 512> audioRing;
@@ -228,7 +230,7 @@ void setPcmStreamEnabled(bool enabled, bool automatic = false) {
   pcmAutoDisabled = automatic && !enabled;
   pcmConsecutiveFailures = 0;
   if (pcmQueue) xQueueReset(pcmQueue);
-  if (!enabled) pcmUdp.stop();
+  if (!enabled) pcmTcp.stop();
 }
 
 bool startMicrophone() {
@@ -423,15 +425,23 @@ void pcmTransportTask(void*) {
       else pcmSendFailures++;
       continue;
     }
-    // OSC carries the primary sensor data. If it is using the UDP stack, discard
-    // this real-time audio packet instead of letting PCM create network backlog.
+    // OSC remains the priority path. PCM uses a short, nonblocking TCP write so
+    // retransmission can repair Wi-Fi loss without stalling sensor transport.
     if (!udpMutex || xSemaphoreTake(udpMutex, pdMS_TO_TICKS(2)) != pdTRUE) {
       pcmQueueDrops++;
       continue;
     }
-    bool sent = WiFi.status() == WL_CONNECTED && pcmUdp.beginPacket(ROUTER_IP, PCM_ROUTER_PORT);
-    if (sent) sent = pcmUdp.write(reinterpret_cast<uint8_t*>(&packet), bytes) == bytes;
-    if (sent) sent = pcmUdp.endPacket(); else pcmUdp.stop();
+    bool sent = WiFi.status() == WL_CONNECTED;
+    if (sent && !pcmTcp.connected()) {
+      pcmTcp.stop();
+      sent = pcmTcp.connect(ROUTER_IP, PCM_ROUTER_PORT, 100);
+      if (sent) pcmTcp.setNoDelay(true);
+    }
+    if (sent) {
+      int written = send(pcmTcp.fd(), reinterpret_cast<uint8_t*>(&packet), bytes, MSG_DONTWAIT);
+      sent = written == static_cast<int>(bytes);
+      if (!sent) pcmTcp.stop();
+    }
     xSemaphoreGive(udpMutex);
     if (!sent) {
       pcmSendFailures++;
