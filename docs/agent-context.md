@@ -26,6 +26,7 @@
 - OTA was verified end to end on 2026-07-20 by wirelessly reinstalling clean firmware `1714178`; PlatformIO reported success and `/status` confirmed a reboot into the freshly built image. Use the explicit IP while mDNS remains unreliable on the extender network.
 - Sensor diagnostics firmware `1f231cb` was installed OTA through `indoor-sky.local`. Live `/status` checks confirmed the BME280 at its configured I2C address with plausible readings (~29.1 C, 38.3% RH, 998.2 hPa) and confirmed changing, nonzero INMP441 samples at 16 kHz on GPIO16/17/18.
 - The full transport/dashboard firmware uses the electric-sky architecture: BME at a requested 100 Hz, RMS at 250 Hz, 20 binary WebSocket batches/sec, six seconds of PSRAM transport buffering, 10-second browser scopes with adjustable presentation delay, network/reset/stack diagnostics, `/batch/indoor-sky/*` OSC routes to `192.168.0.41:5005`, and optional 16 kHz PCM to port 5007. Raw PCM defaults off and auto-disables after repeated send failures.
+- Firmware `3f24e68` was verified live after OTA: BME 100 Hz, RMS 250 Hz, no overruns or transport drops, strong Wi-Fi, healthy stack reserves, and correct dashboard HTML. Packet capture on the Pi confirmed indoor OSC batches on UDP 5005 and valid 672-byte PCM frames on UDP 5007; the PCM stream key is `pcm/192.168.0.32/audio`.
 
 ## Repository Map
 - `esp32_api`: Python/FastAPI backend.
