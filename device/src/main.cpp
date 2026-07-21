@@ -38,10 +38,6 @@ constexpr size_t TRANSPORT_QUEUE_DEPTH = 120;
 constexpr size_t PCM_SAMPLES_PER_PACKET = 320;
 constexpr size_t PCM_QUEUE_DEPTH = 24;
 constexpr size_t OSC_PACKET_BYTES = 1472;
-// UDP can briefly report send failures while Wi-Fi remains usable.  Requiring a
-// sustained run keeps the battery/network safety cutoff without turning a few
-// congested packets into a permanently idle audio stream.
-constexpr uint8_t PCM_FAILURE_LIMIT = 50;
 const IPAddress ROUTER_IP(192, 168, 0, 41);
 
 struct BmeSample {
@@ -413,7 +409,7 @@ void pcmTransportTask(void*) {
     if (sent) sent = pcmUdp.endPacket(); else pcmUdp.stop();
     if (!sent) {
       pcmSendFailures++;
-      if (++pcmConsecutiveFailures >= PCM_FAILURE_LIMIT) setPcmStreamEnabled(false, true);
+      pcmConsecutiveFailures++;
     } else { pcmPacketsSent++; pcmConsecutiveFailures = 0; }
     taskYIELD();
   }
