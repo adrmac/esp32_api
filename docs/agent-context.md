@@ -9,8 +9,7 @@
 - Use workspace or repo settings for stable editor/runtime configuration.
 
 ## Current Objective
-- Migrate `device/` from the AM2320 MicroPython prototype to PlatformIO firmware for an indoor ESP32-S3-DevKitC-1-N8R8 monitor.
-- Add the BME280 and INMP441 sensor paths now that USB bootstrap and OTA are verified.
+- Operate `device/` as an indoor counterpart to electric-sky with BME280 and INMP441 acquisition, a local observability dashboard, batched OSC, and optional raw PCM transport to signal-router.
 
 ## Current Device Work
 - Target: Espressif ESP32-S3-DevKitC-1 with ESP32-S3-WROOM-1-N8R8 (8 MB flash, 8 MB octal PSRAM).
@@ -26,6 +25,7 @@
 - The local uploader revealed the matching device-side limit: ArduinoOTA defaults to a one-second receive timeout with only three retries. Firmware now sets a 30-second receive timeout so transient extender stalls do not abort the update server.
 - OTA was verified end to end on 2026-07-20 by wirelessly reinstalling clean firmware `1714178`; PlatformIO reported success and `/status` confirmed a reboot into the freshly built image. Use the explicit IP while mDNS remains unreliable on the extender network.
 - Sensor diagnostics firmware `1f231cb` was installed OTA through `indoor-sky.local`. Live `/status` checks confirmed the BME280 at its configured I2C address with plausible readings (~29.1 C, 38.3% RH, 998.2 hPa) and confirmed changing, nonzero INMP441 samples at 16 kHz on GPIO16/17/18.
+- The full transport/dashboard firmware uses the electric-sky architecture: BME at a requested 100 Hz, RMS at 250 Hz, 20 binary WebSocket batches/sec, six seconds of PSRAM transport buffering, 10-second browser scopes with adjustable presentation delay, network/reset/stack diagnostics, `/batch/indoor-sky/*` OSC routes to `192.168.0.41:5005`, and optional 16 kHz PCM to port 5007. Raw PCM defaults off and auto-disables after repeated send failures.
 
 ## Repository Map
 - `esp32_api`: Python/FastAPI backend.
