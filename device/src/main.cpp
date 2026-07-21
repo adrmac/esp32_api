@@ -459,13 +459,19 @@ void audioTask(void*) {
 
 void pcmTransportTask(void*) {
   PcmPacket packet;
+  bool havePacket = false;
   while (true) {
-    if (xQueueReceive(pcmQueue, &packet, pdMS_TO_TICKS(100)) != pdTRUE) continue;
-    if (otaInProgress || (!pcmStreamEnabled && !usbPcmStreamEnabled)) continue;
+    if (!havePacket) {
+      if (xQueueReceive(pcmQueue, &packet, pdMS_TO_TICKS(100)) != pdTRUE) continue;
+      havePacket = true;
+    }
+    if (!pcmStreamEnabled && !usbPcmStreamEnabled) { havePacket = false; continue; }
+    if (otaInProgress) { vTaskDelay(pdMS_TO_TICKS(50)); continue; }
     size_t bytes = packet.header.headerBytes + packet.header.sampleCount * sizeof(int16_t);
     if (usbPcmStreamEnabled) {
       if (Serial.write(reinterpret_cast<uint8_t*>(&packet), bytes) == bytes) pcmPacketsSent++;
       else pcmSendFailures++;
+      havePacket = false;
       continue;
     }
     bytes = encodeImaAdpcm(packet, encodedPcmWork);
@@ -486,7 +492,7 @@ void pcmTransportTask(void*) {
       pcmSendFailures++;
       pcmConsecutiveFailures++;
       vTaskDelay(pdMS_TO_TICKS(50));
-    } else { pcmPacketsSent++; pcmConsecutiveFailures = 0; }
+    } else { pcmPacketsSent++; pcmConsecutiveFailures = 0; havePacket = false; }
     taskYIELD();
   }
 }
@@ -534,7 +540,7 @@ String statusJson() {
   json += "\"temperature_c\":" + String(climate.temperature, 4) + ",\"humidity_pct\":" + String(climate.humidity, 4) + ",\"pressure_hpa\":" + String(climate.pressure, 4) + ",";
   json += "\"mic_ready\":" + String(micReady ? "true" : "false") + ",\"audio_actual_hz\":" + String(audioActualHz, 2) + ",\"audio_overruns\":" + String(audioRing.overruns()) + ",\"audio_rms_db\":" + String(audio.rmsDb, 2) + ",";
   json += "\"transport_drops\":" + String(transportDrops) + ",\"osc_router\":\"" + ROUTER_IP.toString() + ":" + String(OSC_ROUTER_PORT) + "\",\"osc_packets_sent\":" + String(oscPacketsSent) + ",\"osc_send_failures\":" + String(oscSendFailures) + ",\"osc_send_avg_us\":" + String(oscSendAvgUs) + ",\"osc_send_max_us\":" + String(oscSendMaxUs) + ",\"osc_send_stalls\":" + String(oscSendStalls) + ",";
-  json += "\"pcm_stream_enabled\":" + String(pcmStreamEnabled ? "true" : "false") + ",\"usb_pcm_stream_enabled\":" + String(usbPcmStreamEnabled ? "true" : "false") + ",\"pcm_auto_disabled\":" + String(pcmAutoDisabled ? "true" : "false") + ",\"pcm_packets_sent\":" + String(pcmPacketsSent) + ",\"pcm_send_failures\":" + String(pcmSendFailures) + ",";
+  json += "\"pcm_stream_enabled\":" + String(pcmStreamEnabled ? "true" : "false") + ",\"usb_pcm_stream_enabled\":" + String(usbPcmStreamEnabled ? "true" : "false") + ",\"pcm_auto_disabled\":" + String(pcmAutoDisabled ? "true" : "false") + ",\"pcm_packets_queued\":" + String(pcmPacketsQueued) + ",\"pcm_packets_sent\":" + String(pcmPacketsSent) + ",\"pcm_queue_depth\":" + String(pcmQueue ? uxQueueMessagesWaiting(pcmQueue) : 0) + ",\"pcm_queue_drops\":" + String(pcmQueueDrops) + ",\"pcm_send_failures\":" + String(pcmSendFailures) + ",";
   json += "\"healthy\":" + String(climateOk && audioOk ? "true" : "false") + "}";
   return json;
 }
