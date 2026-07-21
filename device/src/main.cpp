@@ -173,6 +173,7 @@ TaskHandle_t pcmTaskHandle = nullptr;
 volatile bool otaInProgress = false;
 volatile bool otaAudioStopped = false;
 volatile bool pcmStreamEnabled = false;
+volatile bool usbPcmStreamEnabled = false;
 volatile bool pcmAutoDisabled = false;
 volatile uint8_t pcmConsecutiveFailures = 0;
 volatile uint8_t webSocketClients = 0;
@@ -222,6 +223,7 @@ const char* resetReasonName(esp_reset_reason_t reason) {
 }
 
 void setPcmStreamEnabled(bool enabled, bool automatic = false) {
+  if (enabled) usbPcmStreamEnabled = false;
   pcmStreamEnabled = enabled;
   pcmAutoDisabled = automatic && !enabled;
   pcmConsecutiveFailures = 0;
@@ -387,7 +389,7 @@ void audioTask(void*) {
     AudioSample sample = {++sequence, frameEndUs, rmsDb};
     audioRing.push(sample); audioProduced++;
     xSemaphoreTake(latestMutex, portMAX_DELAY); latestAudio = sample; hasAudio = true; xSemaphoreGive(latestMutex);
-    if (!pcmStreamEnabled || !pcmQueue) { pcmCount = 0; continue; }
+    if ((!pcmStreamEnabled && !usbPcmStreamEnabled) || !pcmQueue) { pcmCount = 0; continue; }
     if (!pcmCount) pcmPacket.header = {{'E','S','A','U'}, 1, 1, 16, 0, ++pcmSequence,
       frameEndUs - count * 1000000ULL / MIC_SAMPLE_RATE, MIC_SAMPLE_RATE, 0, sizeof(PcmPacketHeader), pcmQueueDrops};
     for (size_t i = 0; i < count && pcmCount < PCM_SAMPLES_PER_PACKET; ++i) {
@@ -414,14 +416,19 @@ void pcmTransportTask(void*) {
   PcmPacket packet;
   while (true) {
     if (xQueueReceive(pcmQueue, &packet, pdMS_TO_TICKS(100)) != pdTRUE) continue;
-    if (otaInProgress || !pcmStreamEnabled) continue;
+    if (otaInProgress || (!pcmStreamEnabled && !usbPcmStreamEnabled)) continue;
+    size_t bytes = packet.header.headerBytes + packet.header.sampleCount * sizeof(int16_t);
+    if (usbPcmStreamEnabled) {
+      if (Serial.write(reinterpret_cast<uint8_t*>(&packet), bytes) == bytes) pcmPacketsSent++;
+      else pcmSendFailures++;
+      continue;
+    }
     // OSC carries the primary sensor data. If it is using the UDP stack, discard
     // this real-time audio packet instead of letting PCM create network backlog.
     if (!udpMutex || xSemaphoreTake(udpMutex, pdMS_TO_TICKS(2)) != pdTRUE) {
       pcmQueueDrops++;
       continue;
     }
-    size_t bytes = packet.header.headerBytes + packet.header.sampleCount * sizeof(int16_t);
     bool sent = WiFi.status() == WL_CONNECTED && pcmUdp.beginPacket(ROUTER_IP, PCM_ROUTER_PORT);
     if (sent) sent = pcmUdp.write(reinterpret_cast<uint8_t*>(&packet), bytes) == bytes;
     if (sent) sent = pcmUdp.endPacket(); else pcmUdp.stop();
@@ -478,7 +485,7 @@ String statusJson() {
   json += "\"temperature_c\":" + String(climate.temperature, 4) + ",\"humidity_pct\":" + String(climate.humidity, 4) + ",\"pressure_hpa\":" + String(climate.pressure, 4) + ",";
   json += "\"mic_ready\":" + String(micReady ? "true" : "false") + ",\"audio_actual_hz\":" + String(audioActualHz, 2) + ",\"audio_overruns\":" + String(audioRing.overruns()) + ",\"audio_rms_db\":" + String(audio.rmsDb, 2) + ",";
   json += "\"transport_drops\":" + String(transportDrops) + ",\"osc_router\":\"" + ROUTER_IP.toString() + ":" + String(OSC_ROUTER_PORT) + "\",\"osc_packets_sent\":" + String(oscPacketsSent) + ",\"osc_send_failures\":" + String(oscSendFailures) + ",\"osc_send_avg_us\":" + String(oscSendAvgUs) + ",\"osc_send_max_us\":" + String(oscSendMaxUs) + ",\"osc_send_stalls\":" + String(oscSendStalls) + ",";
-  json += "\"pcm_stream_enabled\":" + String(pcmStreamEnabled ? "true" : "false") + ",\"pcm_auto_disabled\":" + String(pcmAutoDisabled ? "true" : "false") + ",\"pcm_packets_sent\":" + String(pcmPacketsSent) + ",\"pcm_send_failures\":" + String(pcmSendFailures) + ",";
+  json += "\"pcm_stream_enabled\":" + String(pcmStreamEnabled ? "true" : "false") + ",\"usb_pcm_stream_enabled\":" + String(usbPcmStreamEnabled ? "true" : "false") + ",\"pcm_auto_disabled\":" + String(pcmAutoDisabled ? "true" : "false") + ",\"pcm_packets_sent\":" + String(pcmPacketsSent) + ",\"pcm_send_failures\":" + String(pcmSendFailures) + ",";
   json += "\"healthy\":" + String(climateOk && audioOk ? "true" : "false") + "}";
   return json;
 }
@@ -505,6 +512,16 @@ void startServices() {
   server.on("/", []() { String page(DASHBOARD_HTML); page.replace("{{IP}}", WiFi.localIP().toString()); server.sendHeader("Connection", "close"); server.send(200, "text/html", page); server.client().stop(); });
   server.on("/status", []() { server.sendHeader("Cache-Control", "no-store"); server.sendHeader("Connection", "close"); server.send(200, "application/json", statusJson()); server.client().stop(); });
   server.on("/audio/raw", []() { if (server.hasArg("enabled")) { String value = server.arg("enabled"); setPcmStreamEnabled(value == "1" || value == "true" || value == "on"); } server.send(200, "application/json", String("{\"enabled\":") + (pcmStreamEnabled ? "true" : "false") + ",\"auto_disabled\":" + (pcmAutoDisabled ? "true" : "false") + "}"); });
+  server.on("/audio/usb", []() {
+    if (server.hasArg("enabled")) {
+      String value = server.arg("enabled");
+      bool enabled = value == "1" || value == "true" || value == "on";
+      if (enabled) setPcmStreamEnabled(false);
+      usbPcmStreamEnabled = enabled;
+      if (pcmQueue) xQueueReset(pcmQueue);
+    }
+    server.send(200, "application/json", String("{\"enabled\":") + (usbPcmStreamEnabled ? "true" : "false") + "}");
+  });
   server.begin(); webSocket.begin(); webSocket.onEvent(webSocketEvent); webSocket.enableHeartbeat(5000, 1000, 1);
   servicesStarted = true;
 }
