@@ -7,7 +7,6 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <WiFiClient.h>
-#include <sys/socket.h>
 #include <Wire.h>
 #include <driver/i2s.h>
 #include <esp_heap_caps.h>
@@ -38,7 +37,7 @@ constexpr size_t MAX_AUDIO_PER_PACKET = 16;
 constexpr size_t TRANSPORT_PACKET_BYTES = 640;
 constexpr size_t TRANSPORT_QUEUE_DEPTH = 120;
 constexpr size_t PCM_SAMPLES_PER_PACKET = 640;
-constexpr size_t PCM_QUEUE_DEPTH = 12;
+constexpr size_t PCM_QUEUE_DEPTH = 160;
 constexpr size_t OSC_PACKET_BYTES = 1472;
 const IPAddress ROUTER_IP(192, 168, 0, 41);
 
@@ -206,6 +205,7 @@ bool hasAudio = false;
 uint8_t oscPacketBuffer[OSC_PACKET_BYTES];
 TransportPacket transportWorkPacket;
 TransportPacket transportStalePacket;
+PcmPacket pcmStalePacket;
 BmeSample transportBmeBatch[MAX_BME_PER_PACKET];
 AudioSample transportAudioBatch[MAX_AUDIO_PER_PACKET];
 RTC_DATA_ATTR uint32_t bootCount = 0;
@@ -403,8 +403,7 @@ void audioTask(void*) {
     if (pcmCount == PCM_SAMPLES_PER_PACKET) {
       pcmPacket.header.sampleCount = pcmCount; pcmPacket.header.queueDrops = pcmQueueDrops;
       if (xQueueSend(pcmQueue, &pcmPacket, 0) != pdTRUE) {
-        PcmPacket stale;
-        xQueueReceive(pcmQueue, &stale, 0);
+        xQueueReceive(pcmQueue, &pcmStalePacket, 0);
         pcmQueueDrops++;
         xQueueSend(pcmQueue, &pcmPacket, 0);
       }
@@ -425,28 +424,23 @@ void pcmTransportTask(void*) {
       else pcmSendFailures++;
       continue;
     }
-    // OSC remains the priority path. PCM uses a short, nonblocking TCP write so
-    // retransmission can repair Wi-Fi loss without stalling sensor transport.
-    if (!udpMutex || xSemaphoreTake(udpMutex, pdMS_TO_TICKS(2)) != pdTRUE) {
-      pcmQueueDrops++;
-      continue;
-    }
-    bool sent = WiFi.status() == WL_CONNECTED;
-    if (sent && !pcmTcp.connected()) {
-      pcmTcp.stop();
-      sent = pcmTcp.connect(ROUTER_IP, PCM_ROUTER_PORT, 100);
-      if (sent) pcmTcp.setNoDelay(true);
-    }
-    if (sent) {
-      int written = send(pcmTcp.fd(), reinterpret_cast<uint8_t*>(&packet), bytes, MSG_DONTWAIT);
-      sent = written == static_cast<int>(bytes);
+    // This dedicated task may wait for TCP retransmission while OSC continues
+    // independently. Retry the complete framed packet after a reconnect.
+    bool sent = false;
+    for (uint8_t attempt = 0; attempt < 2 && !sent && pcmStreamEnabled; ++attempt) {
+      if (WiFi.status() != WL_CONNECTED) break;
+      if (!pcmTcp.connected()) {
+        pcmTcp.stop();
+        if (!pcmTcp.connect(ROUTER_IP, PCM_ROUTER_PORT, 1000)) break;
+        pcmTcp.setNoDelay(true);
+      }
+      sent = pcmTcp.write(reinterpret_cast<uint8_t*>(&packet), bytes) == bytes;
       if (!sent) pcmTcp.stop();
     }
-    xSemaphoreGive(udpMutex);
     if (!sent) {
       pcmSendFailures++;
       pcmConsecutiveFailures++;
-      vTaskDelay(pdMS_TO_TICKS(20));
+      vTaskDelay(pdMS_TO_TICKS(50));
     } else { pcmPacketsSent++; pcmConsecutiveFailures = 0; }
     taskYIELD();
   }
