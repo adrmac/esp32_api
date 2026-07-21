@@ -6,7 +6,6 @@
 #include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
-#include <WiFiClient.h>
 #include <Wire.h>
 #include <driver/i2s.h>
 #include <esp_heap_caps.h>
@@ -32,7 +31,7 @@ constexpr uint32_t BME_INTERVAL_MS = 10;
 constexpr uint32_t TRANSPORT_INTERVAL_MS = 63;
 constexpr uint32_t WIFI_RETRY_MS = 10000;
 constexpr uint16_t OSC_ROUTER_PORT = 5005;
-constexpr uint16_t PCM_ROUTER_PORT = 5008;
+constexpr uint16_t PCM_ROUTER_PORT = 5007;
 constexpr size_t MAX_BME_PER_PACKET = 8;
 constexpr size_t MAX_AUDIO_PER_PACKET = 16;
 constexpr size_t TRANSPORT_PACKET_BYTES = 640;
@@ -164,7 +163,7 @@ static_assert(sizeof(PacketHeader) + MAX_BME_PER_PACKET * sizeof(BmeSample) + MA
 WebServer server(80);
 WebSocketsServer webSocket(81);
 WiFiUDP oscUdp;
-WiFiClient pcmTcp;
+WiFiUDP pcmUdp;
 Adafruit_BME280 bme;
 SampleRing<BmeSample, 256> bmeRing;
 SampleRing<AudioSample, 512> audioRing;
@@ -277,7 +276,6 @@ void setPcmStreamEnabled(bool enabled, bool automatic = false) {
   pcmAutoDisabled = automatic && !enabled;
   pcmConsecutiveFailures = 0;
   if (pcmQueue) xQueueReset(pcmQueue);
-  if (!enabled) pcmTcp.stop();
 }
 
 bool startMicrophone() {
@@ -469,40 +467,24 @@ void audioTask(void*) {
 
 void pcmTransportTask(void*) {
   PcmPacket packet;
-  bool havePacket = false;
   while (true) {
-    if (!havePacket) {
-      if (xQueueReceive(pcmQueue, &packet, pdMS_TO_TICKS(100)) != pdTRUE) continue;
-      havePacket = true;
-    }
-    if (!pcmStreamEnabled && !usbPcmStreamEnabled) { havePacket = false; continue; }
-    if (otaInProgress) { vTaskDelay(pdMS_TO_TICKS(50)); continue; }
+    if (xQueueReceive(pcmQueue, &packet, pdMS_TO_TICKS(100)) != pdTRUE) continue;
+    if (otaInProgress || (!pcmStreamEnabled && !usbPcmStreamEnabled)) continue;
     size_t bytes = packet.header.headerBytes + packet.header.sampleCount * sizeof(int16_t);
     if (usbPcmStreamEnabled) {
       if (Serial.write(reinterpret_cast<uint8_t*>(&packet), bytes) == bytes) pcmPacketsSent++;
       else pcmSendFailures++;
-      havePacket = false;
       continue;
     }
     bytes = encodeImaAdpcm(packet, encodedPcmWork);
-    // This dedicated task may wait for TCP retransmission while OSC continues
-    // independently. Retry the complete framed packet after a reconnect.
-    bool sent = false;
-    for (uint8_t attempt = 0; attempt < 2 && !sent && pcmStreamEnabled; ++attempt) {
-      if (WiFi.status() != WL_CONNECTED) break;
-      if (!pcmTcp.connected()) {
-        pcmTcp.stop();
-        if (!pcmTcp.connect(ROUTER_IP, PCM_ROUTER_PORT, 1000)) break;
-        pcmTcp.setNoDelay(true);
-      }
-      sent = pcmTcp.write(reinterpret_cast<uint8_t*>(&encodedPcmWork), bytes) == bytes;
-      if (!sent) pcmTcp.stop();
-    }
+    bool sent = WiFi.status() == WL_CONNECTED &&
+      pcmUdp.beginPacket(ROUTER_IP, PCM_ROUTER_PORT) &&
+      pcmUdp.write(reinterpret_cast<uint8_t*>(&encodedPcmWork), bytes) == bytes &&
+      pcmUdp.endPacket();
     if (!sent) {
       pcmSendFailures++;
       pcmConsecutiveFailures++;
-      vTaskDelay(pdMS_TO_TICKS(50));
-    } else { pcmPacketsSent++; pcmConsecutiveFailures = 0; havePacket = false; }
+    } else { pcmPacketsSent++; pcmConsecutiveFailures = 0; }
     taskYIELD();
   }
 }
@@ -598,7 +580,6 @@ void startServices() {
       if (enabled && !diagnosticIsolation) {
         diagnosticRestorePcm = pcmStreamEnabled;
         pcmStreamEnabled = false; usbPcmStreamEnabled = false;
-        pcmTcp.stop();
         if (pcmQueue) xQueueReset(pcmQueue);
         if (transportQueue) xQueueReset(transportQueue);
         diagnosticIsolation = true;
