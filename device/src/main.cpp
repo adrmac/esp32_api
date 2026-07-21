@@ -35,8 +35,8 @@ constexpr size_t MAX_BME_PER_PACKET = 8;
 constexpr size_t MAX_AUDIO_PER_PACKET = 16;
 constexpr size_t TRANSPORT_PACKET_BYTES = 640;
 constexpr size_t TRANSPORT_QUEUE_DEPTH = 120;
-constexpr size_t PCM_SAMPLES_PER_PACKET = 320;
-constexpr size_t PCM_QUEUE_DEPTH = 24;
+constexpr size_t PCM_SAMPLES_PER_PACKET = 640;
+constexpr size_t PCM_QUEUE_DEPTH = 12;
 constexpr size_t OSC_PACKET_BYTES = 1472;
 const IPAddress ROUTER_IP(192, 168, 0, 41);
 
@@ -147,7 +147,7 @@ static_assert(sizeof(BmeSample) == 24);
 static_assert(sizeof(AudioSample) == 16);
 static_assert(sizeof(PacketHeader) == 76);
 static_assert(sizeof(PcmPacketHeader) == 32);
-static_assert(sizeof(PcmPacket) == 672);
+static_assert(sizeof(PcmPacket) == 1312);
 static_assert(sizeof(PacketHeader) + MAX_BME_PER_PACKET * sizeof(BmeSample) + MAX_AUDIO_PER_PACKET * sizeof(AudioSample) <= TRANSPORT_PACKET_BYTES);
 
 WebServer server(80);
@@ -398,7 +398,13 @@ void audioTask(void*) {
     }
     if (pcmCount == PCM_SAMPLES_PER_PACKET) {
       pcmPacket.header.sampleCount = pcmCount; pcmPacket.header.queueDrops = pcmQueueDrops;
-      if (xQueueSend(pcmQueue, &pcmPacket, 0) == pdTRUE) pcmPacketsQueued++; else pcmQueueDrops++;
+      if (xQueueSend(pcmQueue, &pcmPacket, 0) != pdTRUE) {
+        PcmPacket stale;
+        xQueueReceive(pcmQueue, &stale, 0);
+        pcmQueueDrops++;
+        xQueueSend(pcmQueue, &pcmPacket, 0);
+      }
+      pcmPacketsQueued++;
       pcmCount = 0;
     }
   }
@@ -423,6 +429,7 @@ void pcmTransportTask(void*) {
     if (!sent) {
       pcmSendFailures++;
       pcmConsecutiveFailures++;
+      vTaskDelay(pdMS_TO_TICKS(20));
     } else { pcmPacketsSent++; pcmConsecutiveFailures = 0; }
     taskYIELD();
   }
