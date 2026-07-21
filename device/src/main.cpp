@@ -12,6 +12,7 @@
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 #include <esp_timer.h>
+#include <esp_wifi.h>
 
 #include "Dashboard.h"
 #include "SampleRing.h"
@@ -537,12 +538,24 @@ String statusJson() {
   climate = latestBme; audio = latestAudio; climateOk = hasBme; audioOk = hasAudio;
   xSemaphoreGive(latestMutex);
   String json = "{";
+  wifi_ap_record_t apInfo = {};
+  bool hasApInfo = WiFi.status() == WL_CONNECTED && esp_wifi_sta_get_ap_info(&apInfo) == ESP_OK;
+  String phyModes;
+  if (hasApInfo) {
+    if (apInfo.phy_11b) phyModes += "11b,";
+    if (apInfo.phy_11g) phyModes += "11g,";
+    if (apInfo.phy_11n) phyModes += "11n,";
+    if (apInfo.phy_lr) phyModes += "lr,";
+    if (phyModes.endsWith(",")) phyModes.remove(phyModes.length() - 1);
+  }
   json += "\"firmware_git_sha\":\"" FIRMWARE_GIT_SHA "\",\"firmware_git_dirty\":" + String(FIRMWARE_GIT_DIRTY ? "true" : "false") + ",";
   json += "\"firmware_build_utc\":\"" FIRMWARE_BUILD_UTC "\",\"hostname\":\"" + String(HOSTNAME) + "\",";
   json += "\"uptime_ms\":" + String(millis()) + ",\"boot_count\":" + String(bootCount) + ",";
   json += "\"reset_reason\":\"" + String(resetReasonName(resetReason)) + "\",\"reset_reason_code\":" + String(static_cast<int>(resetReason)) + ",";
   json += "\"diagnostic_isolation\":" + String(diagnosticIsolation ? "true" : "false") + ",";
   json += "\"wifi_connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",\"ip\":\"" + WiFi.localIP().toString() + "\",";
+  json += "\"wifi_ssid\":\"" + WiFi.SSID() + "\",\"wifi_bssid\":\"" + WiFi.BSSIDstr() + "\",\"wifi_channel\":" + String(hasApInfo ? apInfo.primary : 0) + ",";
+  json += "\"wifi_phy_modes\":\"" + phyModes + "\",\"wifi_tx_power_dbm\":" + String(static_cast<int>(WiFi.getTxPower()) / 4.0f, 1) + ",";
   json += "\"wifi_rssi_dbm\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",\"wifi_reconnects\":" + String(wifiReconnects) + ",";
   json += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",\"min_free_heap\":" + String(ESP.getMinFreeHeap()) + ",\"free_psram\":" + String(ESP.getFreePsram()) + ",";
   json += "\"transport_stack_free\":" + String(transportTaskHandle ? uxTaskGetStackHighWaterMark(transportTaskHandle) : 0) + ",\"audio_stack_free\":" + String(audioTaskHandle ? uxTaskGetStackHighWaterMark(audioTaskHandle) : 0) + ",\"pcm_stack_free\":" + String(pcmTaskHandle ? uxTaskGetStackHighWaterMark(pcmTaskHandle) : 0) + ",";
