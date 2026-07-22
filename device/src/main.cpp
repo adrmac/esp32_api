@@ -171,6 +171,7 @@ SampleRing<AudioSample, 512> audioRing;
 
 SemaphoreHandle_t latestMutex = nullptr;
 SemaphoreHandle_t udpMutex = nullptr;
+SemaphoreHandle_t usbMutex = nullptr;
 QueueHandle_t transportQueue = nullptr;
 QueueHandle_t pcmQueue = nullptr;
 StaticQueue_t transportQueueControl;
@@ -205,6 +206,8 @@ volatile uint32_t pcmPacketsQueued = 0;
 volatile uint32_t pcmPacketsSent = 0;
 volatile uint32_t pcmQueueDrops = 0;
 volatile uint32_t pcmSendFailures = 0;
+volatile uint32_t usbScalarPacketsSent = 0;
+volatile uint32_t usbScalarSendFailures = 0;
 
 bool bmeReady = false;
 bool micReady = false;
@@ -226,6 +229,7 @@ RTC_DATA_ATTR uint32_t bootCount = 0;
 esp_reset_reason_t resetReason = ESP_RST_UNKNOWN;
 
 uint64_t nowUs() { return static_cast<uint64_t>(esp_timer_get_time()); }
+String statusJson();
 
 const int8_t IMA_INDEX_TABLE[8] = {-1, -1, -1, -1, 2, 4, 6, 8};
 const uint16_t IMA_STEP_TABLE[89] = {
@@ -332,6 +336,25 @@ bool sendOscPacket(OscWriter& writer) {
   if (!sent) { oscSendFailures++; return false; }
   oscPacketsSent++;
   return true;
+}
+
+bool sendUsbFrame(const void* data, size_t length) {
+  if (!Serial || !usbMutex || xSemaphoreTake(usbMutex, pdMS_TO_TICKS(20)) != pdTRUE) return false;
+  size_t written = Serial.write(static_cast<const uint8_t*>(data), length);
+  xSemaphoreGive(usbMutex);
+  return written == length;
+}
+
+bool sendUsbStatus() {
+  if (!Serial || !usbMutex || xSemaphoreTake(usbMutex, pdMS_TO_TICKS(20)) != pdTRUE) return false;
+  String json = statusJson();
+  uint8_t header[8] = {'I', 'N', 'J', 'S'};
+  uint32_t length = json.length();
+  memcpy(header + 4, &length, sizeof(length));
+  bool sent = Serial.write(header, sizeof(header)) == sizeof(header) &&
+    Serial.write(reinterpret_cast<const uint8_t*>(json.c_str()), length) == length;
+  xSemaphoreGive(usbMutex);
+  return sent;
 }
 
 void writeOscBatchHeader(OscWriter& writer, const char* address, const char* tags, const char* unit, const PacketHeader& header) {
@@ -474,7 +497,7 @@ void pcmTransportTask(void*) {
     if (otaInProgress || (!pcmStreamEnabled && !usbPcmStreamEnabled)) continue;
     size_t bytes = packet.header.headerBytes + packet.header.sampleCount * sizeof(int16_t);
     if (usbPcmStreamEnabled) {
-      if (Serial.write(reinterpret_cast<uint8_t*>(&packet), bytes) == bytes) pcmPacketsSent++;
+      if (sendUsbFrame(&packet, bytes)) pcmPacketsSent++;
       else pcmSendFailures++;
       continue;
     }
@@ -500,6 +523,7 @@ void rateTask(void*) {
     uint32_t bmeNow = bmeProduced, audioNow = audioProduced;
     bmeActualHz = (bmeNow - lastBme) / seconds; audioActualHz = (audioNow - lastAudio) / seconds;
     lastBme = bmeNow; lastAudio = audioNow; previous = current;
+    sendUsbStatus();
   }
 }
 
@@ -508,7 +532,8 @@ void transportTask(void*) {
   while (true) {
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(TRANSPORT_INTERVAL_MS));
     if (otaInProgress || diagnosticIsolation || !buildBatch(transportWorkPacket)) continue;
-    sendOscBatches(transportWorkPacket);
+    if (sendUsbFrame(transportWorkPacket.data, transportWorkPacket.length)) usbScalarPacketsSent++;
+    else { usbScalarSendFailures++; sendOscBatches(transportWorkPacket); }
     if (webSocketClients && xQueueSend(transportQueue, &transportWorkPacket, 0) != pdTRUE) {
       xQueueReceive(transportQueue, &transportStalePacket, 0); transportDrops++;
       xQueueSend(transportQueue, &transportWorkPacket, 0);
@@ -550,6 +575,7 @@ String statusJson() {
   json += "\"temperature_c\":" + String(climate.temperature, 4) + ",\"humidity_pct\":" + String(climate.humidity, 4) + ",\"pressure_hpa\":" + String(climate.pressure, 4) + ",";
   json += "\"mic_ready\":" + String(micReady ? "true" : "false") + ",\"audio_actual_hz\":" + String(audioActualHz, 2) + ",\"audio_overruns\":" + String(audioRing.overruns()) + ",\"audio_rms_db\":" + String(audio.rmsDb, 2) + ",";
   json += "\"transport_drops\":" + String(transportDrops) + ",\"osc_router\":\"" + ROUTER_IP.toString() + ":" + String(OSC_ROUTER_PORT) + "\",\"osc_packets_sent\":" + String(oscPacketsSent) + ",\"osc_send_failures\":" + String(oscSendFailures) + ",\"osc_send_avg_us\":" + String(oscSendAvgUs) + ",\"osc_send_max_us\":" + String(oscSendMaxUs) + ",\"osc_send_stalls\":" + String(oscSendStalls) + ",";
+  json += "\"usb_transport_active\":" + String(Serial ? "true" : "false") + ",\"usb_scalar_packets_sent\":" + String(usbScalarPacketsSent) + ",\"usb_scalar_send_failures\":" + String(usbScalarSendFailures) + ",";
   json += "\"pcm_stream_enabled\":" + String(pcmStreamEnabled ? "true" : "false") + ",\"usb_pcm_stream_enabled\":" + String(usbPcmStreamEnabled ? "true" : "false") + ",\"pcm_auto_disabled\":" + String(pcmAutoDisabled ? "true" : "false") + ",\"pcm_packets_queued\":" + String(pcmPacketsQueued) + ",\"pcm_packets_sent\":" + String(pcmPacketsSent) + ",\"pcm_queue_depth\":" + String(pcmQueue ? uxQueueMessagesWaiting(pcmQueue) : 0) + ",\"pcm_queue_drops\":" + String(pcmQueueDrops) + ",\"pcm_send_failures\":" + String(pcmSendFailures) + ",";
   json += "\"healthy\":" + String(climateOk && audioOk ? "true" : "false") + "}";
   return json;
@@ -636,6 +662,7 @@ void setup() {
   for (size_t i = 0; i < sizeof(throughputChunk); ++i) throughputChunk[i] = static_cast<uint8_t>(i * 31U + 17U);
   latestMutex = xSemaphoreCreateMutex();
   udpMutex = xSemaphoreCreateMutex();
+  usbMutex = xSemaphoreCreateMutex();
   transportQueueStorage = static_cast<uint8_t*>(heap_caps_malloc(TRANSPORT_QUEUE_DEPTH * sizeof(TransportPacket), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   pcmQueueStorage = static_cast<uint8_t*>(heap_caps_malloc(PCM_QUEUE_DEPTH * sizeof(PcmPacket), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   transportQueue = transportQueueStorage ? xQueueCreateStatic(TRANSPORT_QUEUE_DEPTH, sizeof(TransportPacket), transportQueueStorage, &transportQueueControl) : nullptr;
@@ -643,7 +670,7 @@ void setup() {
   Wire.begin(BME_SDA_PIN, BME_SCL_PIN);
   bmeReady = bme.begin(0x76, &Wire) || bme.begin(0x77, &Wire);
   if (bmeReady) bme.setSampling(Adafruit_BME280::MODE_NORMAL, Adafruit_BME280::SAMPLING_X1, Adafruit_BME280::SAMPLING_X1, Adafruit_BME280::SAMPLING_X1, Adafruit_BME280::FILTER_OFF, Adafruit_BME280::STANDBY_MS_0_5);
-  if (!latestMutex || !udpMutex || !transportQueue || !pcmQueue || !bmeReady || !startMicrophone()) while (true) delay(1000);
+  if (!latestMutex || !udpMutex || !usbMutex || !transportQueue || !pcmQueue || !bmeReady || !startMicrophone()) while (true) delay(1000);
   connectWifi(); startServices();
   xTaskCreatePinnedToCore(audioTask, "audio", 4096, nullptr, 3, &audioTaskHandle, 1);
   xTaskCreatePinnedToCore(pcmTransportTask, "pcm-net", 4096, nullptr, 3, &pcmTaskHandle, 1);
@@ -653,6 +680,12 @@ void setup() {
 }
 
 void loop() {
+  if (Serial.available() >= 4) {
+    char command[4];
+    if (Serial.readBytes(command, sizeof(command)) == sizeof(command) && memcmp(command, "INRS", 4) == 0) {
+      delay(100); ESP.restart();
+    }
+  }
   if (WiFi.status() == WL_CONNECTED) {
     startServices(); ArduinoOTA.handle(); server.handleClient(); webSocket.loop();
     TransportPacket packet;
