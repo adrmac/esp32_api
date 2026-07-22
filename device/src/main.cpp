@@ -684,8 +684,14 @@ void setup() {
 void loop() {
   if (Serial.available() >= 4) {
     char command[4];
-    if (Serial.readBytes(command, sizeof(command)) == sizeof(command) && memcmp(command, "INRS", 4) == 0) {
-      delay(100); ESP.restart();
+    if (Serial.readBytes(command, sizeof(command)) == sizeof(command)) {
+      if (memcmp(command, "INRS", 4) == 0) { delay(100); ESP.restart(); }
+      if (memcmp(command, "INP1", 4) == 0) {
+        setPcmStreamEnabled(false); usbPcmStreamEnabled = true; if (pcmQueue) xQueueReset(pcmQueue);
+      }
+      if (memcmp(command, "INP0", 4) == 0) {
+        usbPcmStreamEnabled = false; if (pcmQueue) xQueueReset(pcmQueue);
+      }
     }
   }
   if (WiFi.status() == WL_CONNECTED) {
