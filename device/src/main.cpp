@@ -580,6 +580,7 @@ void startServices() {
   server.on("/", []() { server.sendHeader("Location", "https://adrian-pi:3000/indoor-sky/", true); server.send(302, "text/plain", "Dashboard moved to signal-router"); });
   server.on("/dashboard", []() { server.send_P(200, "text/html", DASHBOARD_HTML); });
   server.on("/status", []() { server.sendHeader("Cache-Control", "no-store"); server.sendHeader("Connection", "close"); server.send(200, "application/json", statusJson()); server.client().stop(); });
+  server.on("/restart", []() { server.send(200, "text/plain", "restarting"); server.client().stop(); delay(200); ESP.restart(); });
   server.on("/audio/raw", []() { if (server.hasArg("enabled")) { String value = server.arg("enabled"); setPcmStreamEnabled(value == "1" || value == "true" || value == "on"); } server.send(200, "application/json", String("{\"enabled\":") + (pcmStreamEnabled ? "true" : "false") + ",\"auto_disabled\":" + (pcmAutoDisabled ? "true" : "false") + "}"); });
   server.on("/diagnostics/isolation", []() {
     if (server.hasArg("enabled")) {
