@@ -660,7 +660,7 @@ void startServices() {
 }  // namespace
 
 void setup() {
-  Serial.begin(115200); delay(500); resetReason = esp_reset_reason(); bootCount++;
+  Serial.begin(921600); delay(500); resetReason = esp_reset_reason(); bootCount++;
   for (size_t i = 0; i < sizeof(throughputChunk); ++i) throughputChunk[i] = static_cast<uint8_t>(i * 31U + 17U);
   latestMutex = xSemaphoreCreateMutex();
   udpMutex = xSemaphoreCreateMutex();
