@@ -535,7 +535,7 @@ void transportTask(void*) {
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(TRANSPORT_INTERVAL_MS));
     if (otaInProgress || diagnosticIsolation || !buildBatch(transportWorkPacket)) continue;
     if (sendUsbFrame(transportWorkPacket.data, transportWorkPacket.length)) usbScalarPacketsSent++;
-    else { usbScalarSendFailures++; sendOscBatches(transportWorkPacket); }
+    else usbScalarSendFailures++;
     if (webSocketClients && xQueueSend(transportQueue, &transportWorkPacket, 0) != pdTRUE) {
       xQueueReceive(transportQueue, &transportStalePacket, 0); transportDrops++;
       xQueueSend(transportQueue, &transportWorkPacket, 0);
