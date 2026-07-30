@@ -339,7 +339,7 @@ bool sendOscPacket(OscWriter& writer) {
 }
 
 bool sendUsbFrame(const void* data, size_t length) {
-  if (!Serial || !usbMutex || xSemaphoreTake(usbMutex, pdMS_TO_TICKS(20)) != pdTRUE) return false;
+  if (!Serial || !usbMutex || xSemaphoreTake(usbMutex, pdMS_TO_TICKS(100)) != pdTRUE) return false;
   size_t written = Serial.write(static_cast<const uint8_t*>(data), length);
   if (written == length) Serial.flush();
   xSemaphoreGive(usbMutex);
@@ -347,7 +347,7 @@ bool sendUsbFrame(const void* data, size_t length) {
 }
 
 bool sendUsbStatus() {
-  if (!Serial || !usbMutex || xSemaphoreTake(usbMutex, pdMS_TO_TICKS(20)) != pdTRUE) return false;
+  if (!Serial || !usbMutex || xSemaphoreTake(usbMutex, pdMS_TO_TICKS(100)) != pdTRUE) return false;
   String json = statusJson();
   uint8_t header[8] = {'I', 'N', 'J', 'S'};
   uint32_t length = json.length();
