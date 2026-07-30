@@ -338,32 +338,23 @@ bool sendOscPacket(OscWriter& writer) {
   return true;
 }
 
-bool writeUsbLocked(const uint8_t* data, size_t length) {
-  size_t written = 0;
-  uint64_t deadline = nowUs() + 250000;
-  while (written < length && nowUs() < deadline) {
-    size_t count = Serial.write(data + written, length - written);
-    if (count) written += count;
-    else vTaskDelay(pdMS_TO_TICKS(1));
-  }
+bool sendUsbFrame(const void* data, size_t length) {
+  if (!Serial || !usbMutex || xSemaphoreTake(usbMutex, pdMS_TO_TICKS(20)) != pdTRUE) return false;
+  size_t written = Serial.write(static_cast<const uint8_t*>(data), length);
+  if (written == length) Serial.flush();
+  xSemaphoreGive(usbMutex);
   return written == length;
 }
 
-bool sendUsbFrame(const void* data, size_t length) {
-  if (!Serial || !usbMutex || xSemaphoreTake(usbMutex, portMAX_DELAY) != pdTRUE) return false;
-  bool sent = writeUsbLocked(static_cast<const uint8_t*>(data), length);
-  xSemaphoreGive(usbMutex);
-  return sent;
-}
-
 bool sendUsbStatus() {
-  if (!Serial || !usbMutex || xSemaphoreTake(usbMutex, portMAX_DELAY) != pdTRUE) return false;
+  if (!Serial || !usbMutex || xSemaphoreTake(usbMutex, pdMS_TO_TICKS(20)) != pdTRUE) return false;
   String json = statusJson();
   uint8_t header[8] = {'I', 'N', 'J', 'S'};
   uint32_t length = json.length();
   memcpy(header + 4, &length, sizeof(length));
-  bool sent = writeUsbLocked(header, sizeof(header)) &&
-    writeUsbLocked(reinterpret_cast<const uint8_t*>(json.c_str()), length);
+  bool sent = Serial.write(header, sizeof(header)) == sizeof(header) &&
+    Serial.write(reinterpret_cast<const uint8_t*>(json.c_str()), length) == length;
+  if (sent) Serial.flush();
   xSemaphoreGive(usbMutex);
   return sent;
 }
