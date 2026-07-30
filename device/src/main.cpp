@@ -341,7 +341,6 @@ bool sendOscPacket(OscWriter& writer) {
 bool sendUsbFrame(const void* data, size_t length) {
   if (!Serial || !usbMutex || xSemaphoreTake(usbMutex, pdMS_TO_TICKS(20)) != pdTRUE) return false;
   size_t written = Serial.write(static_cast<const uint8_t*>(data), length);
-  if (written == length) Serial.flush();
   xSemaphoreGive(usbMutex);
   return written == length;
 }
@@ -354,7 +353,6 @@ bool sendUsbStatus() {
   memcpy(header + 4, &length, sizeof(length));
   bool sent = Serial.write(header, sizeof(header)) == sizeof(header) &&
     Serial.write(reinterpret_cast<const uint8_t*>(json.c_str()), length) == length;
-  if (sent) Serial.flush();
   xSemaphoreGive(usbMutex);
   return sent;
 }
